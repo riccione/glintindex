@@ -1,0 +1,11 @@
+[package]
+name = "glintindex-core"
+description = "Core library for the GlintIndex desktop search engine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+serde = { workspace = true, features = ["derive"] }
