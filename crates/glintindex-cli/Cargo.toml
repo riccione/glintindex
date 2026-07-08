@@ -1,0 +1,17 @@
+[package]
+name = "glintindex-cli"
+description = "CLI interface for the GlintIndex desktop search engine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "glintindex-cli"
+path = "src/main.rs"
+
+[dependencies]
+glintindex-core.workspace = true
+clap.workspace = true
+anyhow.workspace = true
