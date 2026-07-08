@@ -1,15 +1,9 @@
-use serde::{Deserialize, Serialize};
+pub mod document;
+pub mod indexed_folder;
+pub mod search_query;
+pub mod search_result;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Document {
-    pub id: String,
-    pub path: String,
-    pub title: String,
-    pub content: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SearchResult {
-    pub document: Document,
-    pub score: f32,
-}
+pub use document::Document;
+pub use indexed_folder::IndexedFolder;
+pub use search_query::SearchQuery;
+pub use search_result::SearchResult;
