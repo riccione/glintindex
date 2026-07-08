@@ -62,10 +62,12 @@ mod tests {
     #[test]
     fn save_and_load_roundtrip() {
         let path = temp_config_path("roundtrip");
-        let mut config = AppConfig::default();
-        config.indexed_folders = vec![IndexedFolder::enabled(PathBuf::from("/test"))];
-        config.theme = Theme::Dark;
-        config.max_preview_size = 500;
+        let config = AppConfig {
+            indexed_folders: vec![IndexedFolder::enabled(PathBuf::from("/test"))],
+            theme: Theme::Dark,
+            max_preview_size: 500,
+            ..Default::default()
+        };
 
         save(&path, &config).unwrap();
         let loaded = load(&path).unwrap();

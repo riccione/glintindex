@@ -74,12 +74,14 @@ mod tests {
 
     #[test]
     fn enabled_folders() {
-        let mut config = AppConfig::default();
-        config.indexed_folders = vec![
-            IndexedFolder::enabled(PathBuf::from("/a")),
-            IndexedFolder::disabled(PathBuf::from("/b")),
-            IndexedFolder::enabled(PathBuf::from("/c")),
-        ];
+        let config = AppConfig {
+            indexed_folders: vec![
+                IndexedFolder::enabled(PathBuf::from("/a")),
+                IndexedFolder::disabled(PathBuf::from("/b")),
+                IndexedFolder::enabled(PathBuf::from("/c")),
+            ],
+            ..Default::default()
+        };
         let enabled = config.enabled_folders();
         assert_eq!(enabled.len(), 2);
         assert_eq!(enabled[0].path, PathBuf::from("/a"));
