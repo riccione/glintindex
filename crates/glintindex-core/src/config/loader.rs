@@ -26,12 +26,16 @@ pub fn load(path: &Path) -> Result<AppConfig> {
 
 /// Expands a leading `~` in a path to the user's home directory.
 ///
-/// If `$HOME` is not set or the path does not start with `~`,
-/// the path is returned unchanged.
+/// Checks `$HOME` first, then falls back to `dirs::home_dir()` for
+/// cross-platform support (Windows `USERPROFILE`, macOS `/Users/<name>`).
+/// If neither is available, the path is returned unchanged.
 fn expand_tilde(path: &mut PathBuf) {
     let s = path.to_string_lossy().to_string();
     if let Some(rest) = s.strip_prefix('~') {
-        if let Ok(home) = std::env::var("HOME") {
+        let home = std::env::var("HOME")
+            .ok()
+            .or_else(|| dirs::home_dir().map(|p| p.to_string_lossy().to_string()));
+        if let Some(home) = home {
             *path = PathBuf::from(format!("{home}{rest}"));
         }
     }
@@ -55,15 +59,26 @@ pub fn save(path: &Path, config: &AppConfig) -> Result<()> {
     Ok(())
 }
 
-/// Default configuration file content with commented examples.
-const DEFAULT_CONFIG_CONTENT: &str = r#"# GlintIndex Configuration
+/// Returns the default index directory path for the current platform.
+fn default_index_directory_display() -> String {
+    crate::config::defaults::default_index_directory()
+        .to_string_lossy()
+        .to_string()
+}
+
+/// Generates the default configuration file content with the
+/// platform-specific index directory path.
+fn default_config_content() -> String {
+    let index_dir = default_index_directory_display();
+    format!(
+        r#"# GlintIndex Configuration
 #
 # Edit this file to configure which folders are indexed.
 # After changes, run `glintindex index` to update the search index.
 
 # Folders to be indexed.
 # Add your own entries below, for example:
-#   { path = "/home/user/documents", enabled = true }
+#   {{ path = "/home/user/documents", enabled = true }}
 indexed_folders = []
 
 # Folder names to exclude from indexing.
@@ -77,19 +92,23 @@ ignored_folders = [
 ]
 
 # Directory where the search index is stored.
-index_directory = "~/.local/share/glintindex/index"
+index_directory = "{index_dir}"
 
 # Maximum number of characters in a preview snippet.
 max_preview_size = 200
 
 # Visual theme preference: light, dark, or system.
 theme = "system"
-"#;
+"#
+    )
+}
 
 /// Generates a default configuration file at the given path.
 ///
 /// If the file already exists, this is a no-op and returns `Ok(false)`.
 /// If the file is created successfully, returns `Ok(true)`.
+///
+/// The generated config uses the platform-specific default index directory.
 ///
 /// # Errors
 ///
@@ -103,7 +122,7 @@ pub fn generate_default(path: &Path) -> Result<bool> {
         std::fs::create_dir_all(parent)?;
     }
 
-    std::fs::write(path, DEFAULT_CONFIG_CONTENT)?;
+    std::fs::write(path, default_config_content())?;
     Ok(true)
 }
 
@@ -164,11 +183,8 @@ theme = "system"
         std::fs::write(&path, content).unwrap();
 
         let config = load(&path).unwrap();
-        let home = std::env::var("HOME").unwrap_or_default();
-        assert_eq!(
-            config.index_directory,
-            PathBuf::from(format!("{home}/.local/share/glintindex/index"))
-        );
+        assert!(!config.index_directory.to_string_lossy().starts_with('~'));
+        assert!(config.index_directory.is_absolute());
 
         std::fs::remove_file(&path).ok();
     }
@@ -181,7 +197,8 @@ theme = "system"
     }
 
     #[test]
-    fn expand_tilde_noop_when_home_unset() {
+    fn expand_tilde_uses_dirs_fallback() {
+        // Even if HOME is unset, dirs::home_dir() should provide a fallback
         let original = std::env::var("HOME");
         // SAFETY: test-only, single-threaded
         unsafe {
@@ -190,7 +207,9 @@ theme = "system"
 
         let mut path = PathBuf::from("~/test");
         expand_tilde(&mut path);
-        assert_eq!(path, PathBuf::from("~/test"));
+
+        // Should have expanded (either via HOME or dirs::home_dir())
+        assert!(!path.to_string_lossy().starts_with('~'));
 
         if let Ok(val) = original {
             // SAFETY: test-only, single-threaded
@@ -198,6 +217,33 @@ theme = "system"
                 std::env::set_var("HOME", val);
             }
         }
+    }
+
+    #[test]
+    fn default_config_content_contains_platform_path() {
+        let content = default_config_content();
+        let index_dir = default_index_directory_display();
+        assert!(
+            content.contains(&index_dir),
+            "expected content to contain platform path '{index_dir}'"
+        );
+        assert!(!content.contains("~/"), "should not contain tilde path");
+    }
+
+    #[test]
+    fn generate_default_creates_file_with_platform_path() {
+        let path = temp_config_path("generate_platform");
+        std::fs::remove_file(&path).ok();
+
+        let created = generate_default(&path).unwrap();
+        assert!(created);
+        assert!(path.exists());
+
+        let contents = std::fs::read_to_string(&path).unwrap();
+        let index_dir = default_index_directory_display();
+        assert!(contents.contains(&index_dir));
+
+        std::fs::remove_file(&path).ok();
     }
 
     #[test]
