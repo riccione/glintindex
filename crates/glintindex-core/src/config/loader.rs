@@ -39,6 +39,65 @@ pub fn save(path: &Path, config: &AppConfig) -> Result<()> {
     Ok(())
 }
 
+/// Default configuration file content with commented examples.
+const DEFAULT_CONFIG_CONTENT: &str = r#"# GlintIndex Configuration
+#
+# Edit this file to configure which folders are indexed.
+# After changes, run `glintindex index` to update the search index.
+
+# Folders to be indexed.
+# Uncomment and modify the paths below, or add your own entries.
+#indexed_folders = [
+#  { path = "/home/user/documents", enabled = true },
+#  { path = "/home/user/projects", enabled = true },
+#]
+
+# Folder names to exclude from indexing.
+ignored_folders = [
+  ".git",
+  ".svn",
+  ".hg",
+  "node_modules",
+  "__pycache__",
+  ".DS_Store",
+]
+
+# Directory where the search index is stored.
+#index_directory = "~/.local/share/glintindex/index"
+
+# Maximum number of characters in a preview snippet.
+#max_preview_size = 200
+
+# Visual theme preference: Light, Dark, or System.
+#theme = "System"
+"#;
+
+/// Generates a default configuration file at the given path.
+///
+/// If the file already exists, this is a no-op and returns `Ok(false)`.
+/// If the file is created successfully, returns `Ok(true)`.
+///
+/// # Errors
+///
+/// Returns an error if the file cannot be written.
+pub fn generate_default(path: &Path) -> Result<bool> {
+    if path.exists() {
+        return Ok(false);
+    }
+
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+
+    std::fs::write(path, DEFAULT_CONFIG_CONTENT)?;
+    Ok(true)
+}
+
+/// Checks whether a configuration file exists at the given path.
+pub fn config_exists(path: &Path) -> bool {
+    path.exists()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -96,6 +155,47 @@ mod tests {
         let result = load(&path);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("TOML parse error"));
+
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn generate_default_creates_file() {
+        let path = temp_config_path("generate_test");
+        std::fs::remove_file(&path).ok();
+
+        let created = generate_default(&path).unwrap();
+        assert!(created);
+        assert!(path.exists());
+
+        let contents = std::fs::read_to_string(&path).unwrap();
+        assert!(contents.contains("GlintIndex Configuration"));
+        assert!(contents.contains("ignored_folders"));
+
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn generate_default_noop_when_exists() {
+        let path = temp_config_path("generate_noop");
+        std::fs::write(&path, "existing content").unwrap();
+
+        let created = generate_default(&path).unwrap();
+        assert!(!created);
+
+        let contents = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(contents, "existing content");
+
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn config_exists_returns_correctly() {
+        let path = temp_config_path("exists_test");
+        assert!(!config_exists(&path));
+
+        std::fs::write(&path, "").unwrap();
+        assert!(config_exists(&path));
 
         std::fs::remove_file(&path).ok();
     }
