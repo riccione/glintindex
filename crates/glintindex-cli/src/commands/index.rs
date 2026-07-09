@@ -3,6 +3,7 @@ use std::path::Path;
 use anyhow::{Context, Result};
 use clap::Args;
 use glintindex_core::app::ApplicationService;
+use glintindex_core::config::loader;
 
 #[derive(Args)]
 pub struct IndexArgs {
@@ -12,22 +13,34 @@ pub struct IndexArgs {
 }
 
 pub fn execute(config_path: &str, args: IndexArgs) -> Result<()> {
-    let service = ApplicationService::with_config_path(Path::new(config_path))
+    let path = Path::new(config_path);
+
+    // Auto-generate config on first run
+    if !loader::config_exists(path) {
+        let created =
+            loader::generate_default(path).context("Failed to create configuration file")?;
+        if created {
+            println!("Created configuration file: {}", config_path);
+            println!();
+        }
+    }
+
+    let service = ApplicationService::with_config_path(path)
         .context("Failed to initialize application service. Check your configuration file.")?;
 
     match args.folder {
         Some(folder) => {
-            let path = Path::new(&folder);
-            if !path.exists() {
+            let folder_path = Path::new(&folder);
+            if !folder_path.exists() {
                 anyhow::bail!("Folder does not exist: {}", folder);
             }
 
             tracing::info!("Indexing folder: {}", folder);
             let stats = service
-                .index_folder(path)
+                .index_folder(folder_path)
                 .context("Failed to index folder")?;
 
-            println!("\nIndexing completed\n");
+            println!("Indexing completed\n");
             println!("Folders:       1");
             println!("Files indexed: {}", stats.files_indexed);
 
@@ -42,7 +55,15 @@ pub fn execute(config_path: &str, args: IndexArgs) -> Result<()> {
             let enabled = service.enabled_folders();
             if enabled.is_empty() {
                 println!("No folders configured for indexing.");
-                println!("Add folders to your configuration file first.");
+                println!();
+                println!("Edit {} to add folders:", config_path);
+                println!();
+                println!("  indexed_folders = [");
+                println!("    {{ path = \"/home/user/documents\", enabled = true }},");
+                println!("  ]");
+                println!();
+                println!("Or index a specific folder:");
+                println!("  glintindex index --folder /path/to/docs");
                 return Ok(());
             }
 
@@ -53,7 +74,7 @@ pub fn execute(config_path: &str, args: IndexArgs) -> Result<()> {
             let total_skipped: u64 = results.iter().map(|s| s.files_skipped).sum();
             let total_failed: u64 = results.iter().map(|s| s.files_failed).sum();
 
-            println!("\nIndexing completed\n");
+            println!("Indexing completed\n");
             println!("Folders:       {}", enabled.len());
             println!("Files indexed: {}", total_indexed);
 
