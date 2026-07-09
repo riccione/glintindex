@@ -1319,6 +1319,8 @@ dependencies = [
  "anyhow",
  "clap",
  "glintindex-core",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
