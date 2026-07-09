@@ -8,10 +8,12 @@ repository.workspace = true
 rust-version.workspace = true
 
 [[bin]]
-name = "glintindex-cli"
+name = "glintindex"
 path = "src/main.rs"
 
 [dependencies]
 glintindex-core.workspace = true
 clap.workspace = true
 anyhow.workspace = true
+tracing.workspace = true
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
