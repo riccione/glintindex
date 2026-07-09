@@ -250,6 +250,7 @@ impl DocumentIndexer for IndexService {
                 .map_err(|e| GlintIndexError::Index(format!("failed to clear index: {e}")))?;
             (*self.writer.get()).commit()?;
         }
+        self.reader.reload()?;
         Ok(())
     }
 }
