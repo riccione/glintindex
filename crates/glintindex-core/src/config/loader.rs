@@ -1,11 +1,13 @@
 use crate::config::config::AppConfig;
 use crate::error::Result;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// Loads an [`AppConfig`] from the given TOML file path.
 ///
 /// If the file does not exist, returns the default configuration
 /// without writing anything to disk.
+///
+/// Tilde (`~`) in path fields is expanded to the user's home directory.
 ///
 /// # Errors
 ///
@@ -17,8 +19,22 @@ pub fn load(path: &Path) -> Result<AppConfig> {
     }
 
     let contents = std::fs::read_to_string(path)?;
-    let config: AppConfig = toml::from_str(&contents)?;
+    let mut config: AppConfig = toml::from_str(&contents)?;
+    expand_tilde(&mut config.index_directory);
     Ok(config)
+}
+
+/// Expands a leading `~` in a path to the user's home directory.
+///
+/// If `$HOME` is not set or the path does not start with `~`,
+/// the path is returned unchanged.
+fn expand_tilde(path: &mut PathBuf) {
+    let s = path.to_string_lossy().to_string();
+    if let Some(rest) = s.strip_prefix('~') {
+        if let Ok(home) = std::env::var("HOME") {
+            *path = PathBuf::from(format!("{home}{rest}"));
+        }
+    }
 }
 
 /// Saves an [`AppConfig`] to the given TOML file path.
@@ -121,6 +137,7 @@ mod tests {
         let path = temp_config_path("roundtrip");
         let config = AppConfig {
             indexed_folders: vec![IndexedFolder::enabled(PathBuf::from("/test"))],
+            index_directory: PathBuf::from("/tmp/test-index"),
             theme: Theme::Dark,
             max_preview_size: 500,
             ..Default::default()
@@ -132,6 +149,55 @@ mod tests {
         assert_eq!(config, loaded);
 
         std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn load_expands_tilde_in_index_directory() {
+        let path = temp_config_path("tilde_expansion");
+        let content = r#"
+indexed_folders = []
+ignored_folders = []
+index_directory = "~/.local/share/glintindex/index"
+max_preview_size = 200
+theme = "system"
+"#;
+        std::fs::write(&path, content).unwrap();
+
+        let config = load(&path).unwrap();
+        let home = std::env::var("HOME").unwrap_or_default();
+        assert_eq!(
+            config.index_directory,
+            PathBuf::from(format!("{home}/.local/share/glintindex/index"))
+        );
+
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn expand_tilde_noop_when_no_tilde() {
+        let mut path = PathBuf::from("/absolute/path");
+        expand_tilde(&mut path);
+        assert_eq!(path, PathBuf::from("/absolute/path"));
+    }
+
+    #[test]
+    fn expand_tilde_noop_when_home_unset() {
+        let original = std::env::var("HOME");
+        // SAFETY: test-only, single-threaded
+        unsafe {
+            std::env::remove_var("HOME");
+        }
+
+        let mut path = PathBuf::from("~/test");
+        expand_tilde(&mut path);
+        assert_eq!(path, PathBuf::from("~/test"));
+
+        if let Ok(val) = original {
+            // SAFETY: test-only, single-threaded
+            unsafe {
+                std::env::set_var("HOME", val);
+            }
+        }
     }
 
     #[test]
