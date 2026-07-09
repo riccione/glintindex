@@ -28,6 +28,7 @@ pub fn run() -> anyhow::Result<()> {
     init_logging(cli.verbose);
 
     match cli.command {
+        Command::Init => commands::init::execute(&cli.config),
         Command::Index(args) => commands::index::execute(&cli.config, args),
         Command::Search(args) => commands::search::execute(&cli.config, args),
         Command::Stats => commands::stats::execute(&cli.config),
@@ -102,5 +103,11 @@ mod tests {
     fn parse_config_command() {
         let cli = Cli::try_parse_from(["glintindex", "config"]).unwrap();
         assert!(matches!(cli.command, Command::Config));
+    }
+
+    #[test]
+    fn parse_init_command() {
+        let cli = Cli::try_parse_from(["glintindex", "init"]).unwrap();
+        assert!(matches!(cli.command, Command::Init));
     }
 }
