@@ -8,6 +8,7 @@ repository.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+dirs.workspace = true
 serde = { workspace = true, features = ["derive"] }
 toml = "0.8"
 thiserror.workspace = true
