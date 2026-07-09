@@ -68,8 +68,8 @@ ignored_folders = [
 # Maximum number of characters in a preview snippet.
 #max_preview_size = 200
 
-# Visual theme preference: Light, Dark, or System.
-#theme = "System"
+# Visual theme preference: light, dark, or system.
+#theme = "system"
 "#;
 
 /// Generates a default configuration file at the given path.
