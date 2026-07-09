@@ -2,7 +2,10 @@ use std::path::PathBuf;
 
 /// Returns the default index storage directory.
 ///
-/// On Linux this is `~/.local/share/glintindex/index`.
+/// Uses platform-standard locations via the `dirs` crate:
+/// - Linux: `~/.local/share/glintindex/index`
+/// - macOS: `~/Library/Application Support/glintindex/index`
+/// - Windows: `C:\Users\<user>\AppData\Local\glintindex\index`
 pub fn default_index_directory() -> PathBuf {
     data_dir().join("index")
 }
@@ -25,11 +28,9 @@ pub fn default_max_preview_size() -> usize {
 }
 
 fn data_dir() -> PathBuf {
-    PathBuf::from(std::env::var("XDG_DATA_HOME").unwrap_or_else(|_| {
-        let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
-        format!("{home}/.local/share")
-    }))
-    .join("glintindex")
+    dirs::data_local_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("glintindex")
 }
 
 #[cfg(test)]
@@ -40,6 +41,22 @@ mod tests {
     fn default_index_directory_ends_with_index() {
         let dir = default_index_directory();
         assert!(dir.ends_with("index"));
+    }
+
+    #[test]
+    fn default_index_directory_is_absolute() {
+        let dir = default_index_directory();
+        assert!(dir.is_absolute(), "expected absolute path, got: {dir:?}");
+    }
+
+    #[test]
+    fn default_index_directory_contains_glintindex() {
+        let dir = default_index_directory();
+        let s = dir.to_string_lossy();
+        assert!(
+            s.contains("glintindex"),
+            "expected path to contain 'glintindex', got: {s}"
+        );
     }
 
     #[test]
