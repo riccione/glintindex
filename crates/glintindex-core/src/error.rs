@@ -49,6 +49,18 @@ impl From<toml::ser::Error> for GlintIndexError {
     }
 }
 
+impl From<tantivy::error::TantivyError> for GlintIndexError {
+    fn from(err: tantivy::error::TantivyError) -> Self {
+        GlintIndexError::Index(format!("Tantivy error: {err}"))
+    }
+}
+
+impl From<tantivy::directory::error::OpenDirectoryError> for GlintIndexError {
+    fn from(err: tantivy::directory::error::OpenDirectoryError) -> Self {
+        GlintIndexError::Index(format!("Tantivy directory error: {err}"))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -95,6 +107,14 @@ mod tests {
     fn other_error_display() {
         let err = GlintIndexError::Other("something went wrong".into());
         assert_eq!(err.to_string(), "something went wrong");
+    }
+
+    #[test]
+    fn tantivy_error_conversion() {
+        let tantivy_err = tantivy::error::TantivyError::SchemaError("test".into());
+        let err = GlintIndexError::from(tantivy_err);
+        assert!(matches!(err, GlintIndexError::Index(_)));
+        assert!(err.to_string().contains("test"));
     }
 
     #[test]
