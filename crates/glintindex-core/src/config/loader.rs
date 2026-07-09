@@ -46,11 +46,9 @@ const DEFAULT_CONFIG_CONTENT: &str = r#"# GlintIndex Configuration
 # After changes, run `glintindex index` to update the search index.
 
 # Folders to be indexed.
-# Uncomment and modify the paths below, or add your own entries.
-#indexed_folders = [
-#  { path = "/home/user/documents", enabled = true },
-#  { path = "/home/user/projects", enabled = true },
-#]
+# Add your own entries below, for example:
+#   { path = "/home/user/documents", enabled = true }
+indexed_folders = []
 
 # Folder names to exclude from indexing.
 ignored_folders = [
@@ -63,13 +61,13 @@ ignored_folders = [
 ]
 
 # Directory where the search index is stored.
-#index_directory = "~/.local/share/glintindex/index"
+index_directory = "~/.local/share/glintindex/index"
 
 # Maximum number of characters in a preview snippet.
-#max_preview_size = 200
+max_preview_size = 200
 
 # Visual theme preference: light, dark, or system.
-#theme = "system"
+theme = "system"
 "#;
 
 /// Generates a default configuration file at the given path.
