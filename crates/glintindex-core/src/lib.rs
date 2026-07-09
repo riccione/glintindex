@@ -1,3 +1,4 @@
+pub mod app;
 pub mod config;
 pub mod error;
 pub mod index;
@@ -6,6 +7,7 @@ pub mod model;
 pub mod scanner;
 pub mod traits;
 
+pub use app::{ApplicationService, ApplicationStatistics};
 pub use config::{AppConfig, Theme};
 pub use error::{GlintIndexError, Result};
 pub use index::{IndexService, IndexStatistics};
