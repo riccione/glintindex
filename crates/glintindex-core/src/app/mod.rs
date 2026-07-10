@@ -34,5 +34,5 @@
 mod service;
 pub mod statistics;
 
-pub use service::ApplicationService;
+pub use service::{ApplicationService, WatcherStatus};
 pub use statistics::{ApplicationStatistics, IndexingResult};

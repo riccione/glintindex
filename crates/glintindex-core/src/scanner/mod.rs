@@ -19,8 +19,8 @@
 //! let stats = scanner.scan_directory(Path::new("/home/user/projects")).unwrap();
 //! ```
 
-mod ignore;
-mod parser;
+pub(crate) mod ignore;
+pub(crate) mod parser;
 pub mod statistics;
 
 pub use service::FilesystemScanner;

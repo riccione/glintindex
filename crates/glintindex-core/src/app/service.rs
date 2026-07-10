@@ -1,23 +1,57 @@
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 
 use crate::config::{AppConfig, loader};
 use crate::error::{GlintIndexError, Result};
 use crate::index::IndexService;
 use crate::model::{IndexedFolder, SearchQuery, SearchResult};
 use crate::scanner::{FilesystemScanner, ScannerStatistics};
+use crate::watcher::FileWatcher;
 
 use super::statistics::ApplicationStatistics;
 
+/// Status information about the filesystem watcher.
+///
+/// Provides a snapshot of the watcher's current state, including
+/// whether it is running and which directories are being monitored.
+///
+/// # Examples
+///
+/// ```
+/// use glintindex_core::app::WatcherStatus;
+///
+/// let status = WatcherStatus::new(false, vec![]);
+/// assert!(!status.is_running);
+/// assert!(status.watched_dirs.is_empty());
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WatcherStatus {
+    /// Whether the watcher is currently running.
+    pub is_running: bool,
+    /// Directories currently being monitored.
+    pub watched_dirs: Vec<PathBuf>,
+}
+
+impl WatcherStatus {
+    /// Creates a new `WatcherStatus` with the given values.
+    pub fn new(is_running: bool, watched_dirs: Vec<PathBuf>) -> Self {
+        Self {
+            is_running,
+            watched_dirs,
+        }
+    }
+}
+
 /// High-level application service that coordinates configuration, indexing,
-/// scanning, and searching.
+/// scanning, searching, and filesystem watching.
 ///
 /// `ApplicationService` is the main entry point for the application layer.
-/// It hides internal subsystem details (Tantivy index, walkdir scanning)
-/// from future GUI and CLI implementations, providing a clean facade
-/// over the core functionality.
+/// It hides internal subsystem details (Tantivy index, walkdir scanning,
+/// filesystem notifications) from future GUI and CLI implementations,
+/// providing a clean facade over the core functionality.
 ///
 /// The service owns its configuration and index, and creates scanners
-/// on-the-fly for indexing operations.
+/// and watchers on-the-fly for their respective operations.
 ///
 /// # Examples
 ///
@@ -25,13 +59,15 @@ use super::statistics::ApplicationStatistics;
 /// use std::path::Path;
 /// use glintindex_core::app::ApplicationService;
 ///
-/// let service = ApplicationService::with_config_path(Path::new("index.toml")).unwrap();
+/// let mut service = ApplicationService::with_config_path(Path::new("index.toml")).unwrap();
 /// let results = service.search(&glintindex_core::SearchQuery::new("hello")).unwrap();
 /// ```
 pub struct ApplicationService {
     config: AppConfig,
     config_path: Option<PathBuf>,
-    index_service: IndexService,
+    index_service: Arc<Mutex<IndexService>>,
+    index_path: PathBuf,
+    watcher: Option<FileWatcher>,
 }
 
 impl ApplicationService {
@@ -45,10 +81,13 @@ impl ApplicationService {
     /// Returns an error if the index cannot be opened or created.
     pub fn new(config: AppConfig) -> Result<Self> {
         let index_service = IndexService::open_or_create(&config.index_directory)?;
+        let index_path = index_service.index_path().to_path_buf();
         Ok(Self {
             config,
             config_path: None,
-            index_service,
+            index_service: Arc::new(Mutex::new(index_service)),
+            index_path,
+            watcher: None,
         })
     }
 
@@ -64,10 +103,13 @@ impl ApplicationService {
     pub fn with_config_path(config_path: &Path) -> Result<Self> {
         let config = loader::load(config_path)?;
         let index_service = IndexService::open_or_create(&config.index_directory)?;
+        let index_path = index_service.index_path().to_path_buf();
         Ok(Self {
             config,
             config_path: Some(config_path.to_path_buf()),
-            index_service,
+            index_service: Arc::new(Mutex::new(index_service)),
+            index_path,
+            watcher: None,
         })
     }
 
@@ -83,13 +125,15 @@ impl ApplicationService {
     /// Returns an error only if the root directory cannot be read or the
     /// index cannot accept documents.
     pub fn index_folder(&self, folder: &Path) -> Result<ScannerStatistics> {
-        let scanner = FilesystemScanner::with_custom_ignores(
-            &self.index_service,
-            &self.config.ignored_folders,
-        );
+        let service = self
+            .index_service
+            .lock()
+            .map_err(|e| GlintIndexError::Other(format!("index service lock poisoned: {e}")))?;
+        let scanner =
+            FilesystemScanner::with_custom_ignores(&service, &self.config.ignored_folders);
         let stats = scanner.scan_directory(folder)?;
-        self.index_service.commit()?;
-        self.index_service.reload_reader()?;
+        service.commit()?;
+        service.reload_reader()?;
         Ok(stats)
     }
 
@@ -103,10 +147,12 @@ impl ApplicationService {
     /// Returns an error if any folder cannot be scanned or the index
     /// cannot accept documents.
     pub fn index_all(&self) -> Result<Vec<ScannerStatistics>> {
-        let scanner = FilesystemScanner::with_custom_ignores(
-            &self.index_service,
-            &self.config.ignored_folders,
-        );
+        let service = self
+            .index_service
+            .lock()
+            .map_err(|e| GlintIndexError::Other(format!("index service lock poisoned: {e}")))?;
+        let scanner =
+            FilesystemScanner::with_custom_ignores(&service, &self.config.ignored_folders);
         let folders: Vec<PathBuf> = self
             .config
             .enabled_folders()
@@ -114,8 +160,8 @@ impl ApplicationService {
             .map(|f| f.path.clone())
             .collect();
         let stats = scanner.scan_directories(&folders)?;
-        self.index_service.commit()?;
-        self.index_service.reload_reader()?;
+        service.commit()?;
+        service.reload_reader()?;
         Ok(vec![stats])
     }
 
@@ -129,7 +175,11 @@ impl ApplicationService {
     /// Returns an error if the query cannot be parsed or the search fails.
     pub fn search(&self, query: &SearchQuery) -> Result<Vec<SearchResult>> {
         use crate::traits::SearchEngine;
-        self.index_service.search(query)
+        let service = self
+            .index_service
+            .lock()
+            .map_err(|e| GlintIndexError::Other(format!("index service lock poisoned: {e}")))?;
+        service.search(query)
     }
 
     /// Rebuilds the entire search index from scratch.
@@ -142,7 +192,14 @@ impl ApplicationService {
     /// Returns an error if the index cannot be rebuilt.
     pub fn rebuild_index(&self) -> Result<()> {
         use crate::traits::DocumentIndexer;
-        self.index_service.rebuild()
+        let service = self
+            .index_service
+            .lock()
+            .map_err(|e| GlintIndexError::Other(format!("index service lock poisoned: {e}")))?;
+        service.rebuild()?;
+        service.commit()?;
+        service.reload_reader()?;
+        Ok(())
     }
 
     /// Returns application-level statistics combining index and folder
@@ -155,7 +212,11 @@ impl ApplicationService {
     ///
     /// Returns an error if index statistics cannot be retrieved.
     pub fn statistics(&self) -> Result<ApplicationStatistics> {
-        let index_stats = self.index_service.statistics()?;
+        let service = self
+            .index_service
+            .lock()
+            .map_err(|e| GlintIndexError::Other(format!("index service lock poisoned: {e}")))?;
+        let index_stats = service.statistics()?;
         Ok(ApplicationStatistics::new(
             index_stats.indexed_documents,
             self.config.indexed_folders.len() as u64,
@@ -172,10 +233,75 @@ impl ApplicationService {
     /// Returns an error if the index cannot be cleared or committed.
     pub fn clear_index(&self) -> Result<()> {
         use crate::traits::DocumentIndexer;
-        self.index_service.rebuild()?;
-        self.index_service.commit()?;
-        self.index_service.reload_reader()?;
+        let service = self
+            .index_service
+            .lock()
+            .map_err(|e| GlintIndexError::Other(format!("index service lock poisoned: {e}")))?;
+        service.rebuild()?;
+        service.commit()?;
+        service.reload_reader()?;
         Ok(())
+    }
+
+    /// Starts watching all enabled configured folders for filesystem changes.
+    ///
+    /// When files are created, modified, or deleted in watched directories,
+    /// the search index is automatically and incrementally updated.
+    ///
+    /// If the watcher is already running, this method is a no-op and
+    /// returns `Ok(())`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the watcher cannot be created or started.
+    pub fn start_watching(&mut self) -> Result<()> {
+        if self.watcher.is_some() {
+            return Ok(());
+        }
+
+        let mut watcher = FileWatcher::with_custom_ignores(
+            self.index_service.clone(),
+            &self.config.ignored_folders,
+        )?;
+
+        for folder in self.config.enabled_folders() {
+            watcher.watch_dir(&folder.path)?;
+        }
+
+        watcher.start()?;
+        self.watcher = Some(watcher);
+        Ok(())
+    }
+
+    /// Stops watching all configured folders for filesystem changes.
+    ///
+    /// The watcher is fully shut down and removed. To resume watching,
+    /// call [`start_watching`](Self::start_watching) again.
+    ///
+    /// If the watcher is not running, this method is a no-op and
+    /// returns `Ok(())`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the watcher cannot be stopped.
+    pub fn stop_watching(&mut self) -> Result<()> {
+        if let Some(mut watcher) = self.watcher.take() {
+            watcher.stop()?;
+        }
+        Ok(())
+    }
+
+    /// Returns the current status of the filesystem watcher.
+    ///
+    /// Provides information about whether the watcher is running and
+    /// which directories are being monitored.
+    pub fn watcher_status(&self) -> WatcherStatus {
+        match &self.watcher {
+            Some(watcher) => {
+                WatcherStatus::new(watcher.is_running(), watcher.watched_dirs().to_vec())
+            }
+            None => WatcherStatus::new(false, vec![]),
+        }
     }
 
     /// Adds a folder to the indexed folders configuration.
@@ -329,7 +455,7 @@ impl ApplicationService {
 
     /// Returns the path where the search index is stored.
     pub fn index_path(&self) -> &Path {
-        self.index_service.index_path()
+        &self.index_path
     }
 }
 
@@ -374,8 +500,6 @@ mod tests {
 
     #[test]
     fn create_service_missing_config_uses_defaults() {
-        // When the config file is missing, loader::load returns AppConfig::default().
-        // Verify that the default config has expected fields without touching the index.
         let config = crate::config::loader::load(std::path::Path::new("nonexistent.toml")).unwrap();
         assert!(config.indexed_folders.is_empty());
         assert!(!config.ignored_folders.is_empty());
@@ -771,5 +895,100 @@ mod tests {
                 .to_string()
                 .contains("no configuration file")
         );
+    }
+
+    #[test]
+    fn start_and_stop_watching() {
+        let tmp = TempDir::new().unwrap();
+        let config = test_config(&tmp);
+        let mut service = ApplicationService::new(config).unwrap();
+
+        let status = service.watcher_status();
+        assert!(!status.is_running);
+
+        service.start_watching().unwrap();
+        let status = service.watcher_status();
+        assert!(status.is_running);
+
+        service.stop_watching().unwrap();
+        let status = service.watcher_status();
+        assert!(!status.is_running);
+    }
+
+    #[test]
+    fn start_watching_is_idempotent() {
+        let tmp = TempDir::new().unwrap();
+        let config = test_config(&tmp);
+        let mut service = ApplicationService::new(config).unwrap();
+
+        service.start_watching().unwrap();
+        service.start_watching().unwrap();
+        assert!(service.watcher_status().is_running);
+
+        service.stop_watching().unwrap();
+    }
+
+    #[test]
+    fn stop_watching_is_idempotent() {
+        let tmp = TempDir::new().unwrap();
+        let config = test_config(&tmp);
+        let mut service = ApplicationService::new(config).unwrap();
+
+        service.stop_watching().unwrap();
+        service.stop_watching().unwrap();
+        assert!(!service.watcher_status().is_running);
+    }
+
+    #[test]
+    fn watcher_status_shows_watched_dirs() {
+        let tmp = TempDir::new().unwrap();
+        let scan_dir = tmp.path().join("scan");
+        fs::create_dir(&scan_dir).unwrap();
+
+        let folders = vec![IndexedFolder::enabled(scan_dir.clone())];
+        let config = indexed_folder_config(&tmp, folders);
+        let mut service = ApplicationService::new(config).unwrap();
+
+        service.start_watching().unwrap();
+        let status = service.watcher_status();
+        assert!(status.is_running);
+        assert_eq!(status.watched_dirs.len(), 1);
+        assert_eq!(status.watched_dirs[0], scan_dir);
+
+        service.stop_watching().unwrap();
+    }
+
+    #[test]
+    fn watcher_status_skips_disabled_folders() {
+        let tmp = TempDir::new().unwrap();
+        let dir_a = tmp.path().join("a");
+        let dir_b = tmp.path().join("b");
+        fs::create_dir(&dir_a).unwrap();
+        fs::create_dir(&dir_b).unwrap();
+
+        let folders = vec![
+            IndexedFolder::enabled(dir_a.clone()),
+            IndexedFolder::disabled(dir_b),
+        ];
+        let config = indexed_folder_config(&tmp, folders);
+        let mut service = ApplicationService::new(config).unwrap();
+
+        service.start_watching().unwrap();
+        let status = service.watcher_status();
+        assert_eq!(status.watched_dirs.len(), 1);
+        assert_eq!(status.watched_dirs[0], dir_a);
+
+        service.stop_watching().unwrap();
+    }
+
+    #[test]
+    fn watcher_status_default_when_not_watching() {
+        let tmp = TempDir::new().unwrap();
+        let config = test_config(&tmp);
+        let service = ApplicationService::new(config).unwrap();
+
+        let status = service.watcher_status();
+        assert!(!status.is_running);
+        assert!(status.watched_dirs.is_empty());
     }
 }
