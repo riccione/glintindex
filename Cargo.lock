@@ -1351,6 +1351,7 @@ dependencies = [
  "anyhow",
  "clap",
  "glintindex-core",
+ "tempfile",
  "tracing",
  "tracing-subscriber",
 ]
