@@ -34,6 +34,8 @@ pub fn run() -> anyhow::Result<()> {
         Command::Stats => commands::stats::execute(&cli.config),
         Command::Rebuild => commands::rebuild::execute(&cli.config),
         Command::Config => commands::config::execute(&cli.config),
+        Command::Folders(args) => commands::folders::execute(&cli.config, args.command),
+        Command::Clear(args) => commands::clear::execute(&cli.config, args),
     }
 }
 
@@ -51,6 +53,7 @@ fn init_logging(verbose: bool) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::commands::folders::FoldersCommand;
     use clap::CommandFactory;
 
     #[test]
@@ -109,5 +112,89 @@ mod tests {
     fn parse_init_command() {
         let cli = Cli::try_parse_from(["glintindex", "init"]).unwrap();
         assert!(matches!(cli.command, Command::Init));
+    }
+
+    #[test]
+    fn parse_folders_list_command() {
+        let cli = Cli::try_parse_from(["glintindex", "folders", "list"]).unwrap();
+        match cli.command {
+            Command::Folders(args) => assert!(matches!(args.command, FoldersCommand::List)),
+            _ => panic!("expected Folders command"),
+        }
+    }
+
+    #[test]
+    fn parse_folders_add_command() {
+        let cli = Cli::try_parse_from(["glintindex", "folders", "add", "~/Documents"]).unwrap();
+        match cli.command {
+            Command::Folders(args) => match args.command {
+                FoldersCommand::Add { path } => assert_eq!(path, "~/Documents"),
+                _ => panic!("expected Folders Add command"),
+            },
+            _ => panic!("expected Folders command"),
+        }
+    }
+
+    #[test]
+    fn parse_folders_remove_command() {
+        let cli = Cli::try_parse_from(["glintindex", "folders", "remove", "~/Documents"]).unwrap();
+        match cli.command {
+            Command::Folders(args) => match args.command {
+                FoldersCommand::Remove { path } => assert_eq!(path, "~/Documents"),
+                _ => panic!("expected Folders Remove command"),
+            },
+            _ => panic!("expected Folders command"),
+        }
+    }
+
+    #[test]
+    fn parse_folders_enable_command() {
+        let cli = Cli::try_parse_from(["glintindex", "folders", "enable", "~/Documents"]).unwrap();
+        match cli.command {
+            Command::Folders(args) => match args.command {
+                FoldersCommand::Enable { path } => assert_eq!(path, "~/Documents"),
+                _ => panic!("expected Folders Enable command"),
+            },
+            _ => panic!("expected Folders command"),
+        }
+    }
+
+    #[test]
+    fn parse_folders_disable_command() {
+        let cli = Cli::try_parse_from(["glintindex", "folders", "disable", "~/Documents"]).unwrap();
+        match cli.command {
+            Command::Folders(args) => match args.command {
+                FoldersCommand::Disable { path } => assert_eq!(path, "~/Documents"),
+                _ => panic!("expected Folders Disable command"),
+            },
+            _ => panic!("expected Folders command"),
+        }
+    }
+
+    #[test]
+    fn parse_clear_command() {
+        let cli = Cli::try_parse_from(["glintindex", "clear"]).unwrap();
+        match cli.command {
+            Command::Clear(args) => assert!(!args.yes),
+            _ => panic!("expected Clear command"),
+        }
+    }
+
+    #[test]
+    fn parse_clear_yes_flag() {
+        let cli = Cli::try_parse_from(["glintindex", "clear", "--yes"]).unwrap();
+        match cli.command {
+            Command::Clear(args) => assert!(args.yes),
+            _ => panic!("expected Clear command"),
+        }
+    }
+
+    #[test]
+    fn parse_clear_short_yes_flag() {
+        let cli = Cli::try_parse_from(["glintindex", "clear", "-y"]).unwrap();
+        match cli.command {
+            Command::Clear(args) => assert!(args.yes),
+            _ => panic!("expected Clear command"),
+        }
     }
 }

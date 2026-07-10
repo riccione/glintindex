@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::config::{AppConfig, loader};
-use crate::error::Result;
+use crate::error::{GlintIndexError, Result};
 use crate::index::IndexService;
 use crate::model::{IndexedFolder, SearchQuery, SearchResult};
 use crate::scanner::{FilesystemScanner, ScannerStatistics};
@@ -30,6 +30,7 @@ use super::statistics::ApplicationStatistics;
 /// ```
 pub struct ApplicationService {
     config: AppConfig,
+    config_path: Option<PathBuf>,
     index_service: IndexService,
 }
 
@@ -46,6 +47,7 @@ impl ApplicationService {
         let index_service = IndexService::open_or_create(&config.index_directory)?;
         Ok(Self {
             config,
+            config_path: None,
             index_service,
         })
     }
@@ -61,7 +63,12 @@ impl ApplicationService {
     /// parsed, or if the index cannot be opened or created.
     pub fn with_config_path(config_path: &Path) -> Result<Self> {
         let config = loader::load(config_path)?;
-        Self::new(config)
+        let index_service = IndexService::open_or_create(&config.index_directory)?;
+        Ok(Self {
+            config,
+            config_path: Some(config_path.to_path_buf()),
+            index_service,
+        })
     }
 
     /// Indexes a single folder, scanning it for supported files and adding
@@ -153,6 +160,156 @@ impl ApplicationService {
             index_stats.indexed_documents,
             self.config.indexed_folders.len() as u64,
         ))
+    }
+
+    /// Clears all indexed documents from the search index.
+    ///
+    /// Preserves the index structure, configuration, and indexed folders.
+    /// After calling this method, the index will be empty.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the index cannot be cleared or committed.
+    pub fn clear_index(&self) -> Result<()> {
+        use crate::traits::DocumentIndexer;
+        self.index_service.rebuild()?;
+        self.index_service.commit()?;
+        self.index_service.reload_reader()?;
+        Ok(())
+    }
+
+    /// Adds a folder to the indexed folders configuration.
+    ///
+    /// The path is canonicalized to an absolute path. If the folder
+    /// is already configured, returns an error.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the path cannot be resolved or is already configured.
+    pub fn add_folder(&mut self, path: &Path) -> Result<()> {
+        let resolved = path
+            .canonicalize()
+            .map_err(|e| GlintIndexError::InvalidInput(format!("cannot resolve path: {e}")))?;
+
+        if self
+            .config
+            .indexed_folders
+            .iter()
+            .any(|f| f.path == resolved)
+        {
+            return Err(GlintIndexError::InvalidInput(format!(
+                "folder already configured: {}",
+                resolved.display()
+            )));
+        }
+
+        self.config
+            .indexed_folders
+            .push(IndexedFolder::enabled(resolved));
+        self.save_config()?;
+        Ok(())
+    }
+
+    /// Removes a folder from the indexed folders configuration.
+    ///
+    /// The path is canonicalized before comparison. If the folder
+    /// is not configured, returns an error. Does not modify the
+    /// existing search index.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the path cannot be resolved or is not configured.
+    pub fn remove_folder(&mut self, path: &Path) -> Result<()> {
+        let resolved = path
+            .canonicalize()
+            .map_err(|e| GlintIndexError::InvalidInput(format!("cannot resolve path: {e}")))?;
+
+        let before = self.config.indexed_folders.len();
+        self.config.indexed_folders.retain(|f| f.path != resolved);
+
+        if self.config.indexed_folders.len() == before {
+            return Err(GlintIndexError::InvalidInput(format!(
+                "folder not configured: {}",
+                resolved.display()
+            )));
+        }
+
+        self.save_config()?;
+        Ok(())
+    }
+
+    /// Enables a folder in the indexed folders configuration.
+    ///
+    /// The path is canonicalized before comparison. If the folder
+    /// is not configured, returns an error. Does not trigger indexing.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the path cannot be resolved or is not configured.
+    pub fn enable_folder(&mut self, path: &Path) -> Result<()> {
+        let resolved = path
+            .canonicalize()
+            .map_err(|e| GlintIndexError::InvalidInput(format!("cannot resolve path: {e}")))?;
+
+        let folder = self
+            .config
+            .indexed_folders
+            .iter_mut()
+            .find(|f| f.path == resolved)
+            .ok_or_else(|| {
+                GlintIndexError::InvalidInput(format!(
+                    "folder not configured: {}",
+                    resolved.display()
+                ))
+            })?;
+
+        folder.enabled = true;
+        self.save_config()?;
+        Ok(())
+    }
+
+    /// Disables a folder in the indexed folders configuration.
+    ///
+    /// The path is canonicalized before comparison. If the folder
+    /// is not configured, returns an error. Does not remove indexed
+    /// documents from the search index.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the path cannot be resolved or is not configured.
+    pub fn disable_folder(&mut self, path: &Path) -> Result<()> {
+        let resolved = path
+            .canonicalize()
+            .map_err(|e| GlintIndexError::InvalidInput(format!("cannot resolve path: {e}")))?;
+
+        let folder = self
+            .config
+            .indexed_folders
+            .iter_mut()
+            .find(|f| f.path == resolved)
+            .ok_or_else(|| {
+                GlintIndexError::InvalidInput(format!(
+                    "folder not configured: {}",
+                    resolved.display()
+                ))
+            })?;
+
+        folder.enabled = false;
+        self.save_config()?;
+        Ok(())
+    }
+
+    /// Saves the current configuration to disk.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if no config path is set or if the save fails.
+    fn save_config(&self) -> Result<()> {
+        let config_path = self
+            .config_path
+            .as_ref()
+            .ok_or_else(|| GlintIndexError::Config("no configuration file path set".into()))?;
+        loader::save(config_path, &self.config)
     }
 
     /// Returns a reference to the application configuration.
@@ -387,5 +544,232 @@ mod tests {
         let config = indexed_folder_config(&tmp, folders);
         let service = ApplicationService::new(config).unwrap();
         assert_eq!(service.enabled_folders().len(), 1);
+    }
+
+    #[test]
+    fn clear_index_removes_documents() {
+        let tmp = TempDir::new().unwrap();
+        let scan_dir = tmp.path().join("scan");
+        fs::create_dir(&scan_dir).unwrap();
+        fs::write(scan_dir.join("file.txt"), "content").unwrap();
+
+        let config = test_config(&tmp);
+        let service = ApplicationService::new(config).unwrap();
+        service.index_folder(&scan_dir).unwrap();
+        assert_eq!(service.statistics().unwrap().indexed_documents, 1);
+
+        service.clear_index().unwrap();
+        assert_eq!(service.statistics().unwrap().indexed_documents, 0);
+    }
+
+    #[test]
+    fn add_folder_adds_to_config() {
+        let tmp = TempDir::new().unwrap();
+        let config_path = tmp.path().join("config.toml");
+        let test_dir = tmp.path().join("docs");
+        fs::create_dir(&test_dir).unwrap();
+
+        let config = AppConfig {
+            index_directory: tmp.path().join("index"),
+            ..Default::default()
+        };
+        crate::config::loader::save(&config_path, &config).unwrap();
+
+        let mut service = ApplicationService::with_config_path(&config_path).unwrap();
+        service.add_folder(&test_dir).unwrap();
+
+        let loaded = crate::config::loader::load(&config_path).unwrap();
+        assert_eq!(loaded.indexed_folders.len(), 1);
+        assert!(loaded.indexed_folders[0].enabled);
+    }
+
+    #[test]
+    fn add_folder_rejects_duplicate() {
+        let tmp = TempDir::new().unwrap();
+        let config_path = tmp.path().join("config.toml");
+        let test_dir = tmp.path().join("docs");
+        fs::create_dir(&test_dir).unwrap();
+
+        let resolved = test_dir.canonicalize().unwrap();
+        let config = AppConfig {
+            indexed_folders: vec![IndexedFolder::enabled(resolved)],
+            index_directory: tmp.path().join("index"),
+            ..Default::default()
+        };
+        crate::config::loader::save(&config_path, &config).unwrap();
+
+        let mut service = ApplicationService::with_config_path(&config_path).unwrap();
+        let result = service.add_folder(&test_dir);
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("already configured")
+        );
+    }
+
+    #[test]
+    fn add_folder_rejects_invalid_path() {
+        let tmp = TempDir::new().unwrap();
+        let config_path = tmp.path().join("config.toml");
+
+        let config = AppConfig {
+            index_directory: tmp.path().join("index"),
+            ..Default::default()
+        };
+        crate::config::loader::save(&config_path, &config).unwrap();
+
+        let mut service = ApplicationService::with_config_path(&config_path).unwrap();
+        let result = service.add_folder(Path::new("/nonexistent/path/that/does/not/exist"));
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("cannot resolve path")
+        );
+    }
+
+    #[test]
+    fn remove_folder_removes_from_config() {
+        let tmp = TempDir::new().unwrap();
+        let config_path = tmp.path().join("config.toml");
+        let test_dir = tmp.path().join("docs");
+        fs::create_dir(&test_dir).unwrap();
+
+        let resolved = test_dir.canonicalize().unwrap();
+        let config = AppConfig {
+            indexed_folders: vec![IndexedFolder::enabled(resolved)],
+            index_directory: tmp.path().join("index"),
+            ..Default::default()
+        };
+        crate::config::loader::save(&config_path, &config).unwrap();
+
+        let mut service = ApplicationService::with_config_path(&config_path).unwrap();
+        service.remove_folder(&test_dir).unwrap();
+
+        let loaded = crate::config::loader::load(&config_path).unwrap();
+        assert!(loaded.indexed_folders.is_empty());
+    }
+
+    #[test]
+    fn remove_folder_rejects_unconfigured() {
+        let tmp = TempDir::new().unwrap();
+        let config_path = tmp.path().join("config.toml");
+        let test_dir = tmp.path().join("docs");
+        fs::create_dir(&test_dir).unwrap();
+
+        let config = AppConfig {
+            index_directory: tmp.path().join("index"),
+            ..Default::default()
+        };
+        crate::config::loader::save(&config_path, &config).unwrap();
+
+        let mut service = ApplicationService::with_config_path(&config_path).unwrap();
+        let result = service.remove_folder(&test_dir);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("not configured"));
+    }
+
+    #[test]
+    fn enable_folder_sets_enabled() {
+        let tmp = TempDir::new().unwrap();
+        let config_path = tmp.path().join("config.toml");
+        let test_dir = tmp.path().join("docs");
+        fs::create_dir(&test_dir).unwrap();
+
+        let resolved = test_dir.canonicalize().unwrap();
+        let config = AppConfig {
+            indexed_folders: vec![IndexedFolder::disabled(resolved)],
+            index_directory: tmp.path().join("index"),
+            ..Default::default()
+        };
+        crate::config::loader::save(&config_path, &config).unwrap();
+
+        let mut service = ApplicationService::with_config_path(&config_path).unwrap();
+        service.enable_folder(&test_dir).unwrap();
+
+        let loaded = crate::config::loader::load(&config_path).unwrap();
+        assert!(loaded.indexed_folders[0].enabled);
+    }
+
+    #[test]
+    fn disable_folder_sets_disabled() {
+        let tmp = TempDir::new().unwrap();
+        let config_path = tmp.path().join("config.toml");
+        let test_dir = tmp.path().join("docs");
+        fs::create_dir(&test_dir).unwrap();
+
+        let resolved = test_dir.canonicalize().unwrap();
+        let config = AppConfig {
+            indexed_folders: vec![IndexedFolder::enabled(resolved)],
+            index_directory: tmp.path().join("index"),
+            ..Default::default()
+        };
+        crate::config::loader::save(&config_path, &config).unwrap();
+
+        let mut service = ApplicationService::with_config_path(&config_path).unwrap();
+        service.disable_folder(&test_dir).unwrap();
+
+        let loaded = crate::config::loader::load(&config_path).unwrap();
+        assert!(!loaded.indexed_folders[0].enabled);
+    }
+
+    #[test]
+    fn enable_folder_rejects_unconfigured() {
+        let tmp = TempDir::new().unwrap();
+        let config_path = tmp.path().join("config.toml");
+        let test_dir = tmp.path().join("docs");
+        fs::create_dir(&test_dir).unwrap();
+
+        let config = AppConfig {
+            index_directory: tmp.path().join("index"),
+            ..Default::default()
+        };
+        crate::config::loader::save(&config_path, &config).unwrap();
+
+        let mut service = ApplicationService::with_config_path(&config_path).unwrap();
+        let result = service.enable_folder(&test_dir);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn disable_folder_rejects_unconfigured() {
+        let tmp = TempDir::new().unwrap();
+        let config_path = tmp.path().join("config.toml");
+        let test_dir = tmp.path().join("docs");
+        fs::create_dir(&test_dir).unwrap();
+
+        let config = AppConfig {
+            index_directory: tmp.path().join("index"),
+            ..Default::default()
+        };
+        crate::config::loader::save(&config_path, &config).unwrap();
+
+        let mut service = ApplicationService::with_config_path(&config_path).unwrap();
+        let result = service.disable_folder(&test_dir);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn save_config_fails_without_path() {
+        let tmp = TempDir::new().unwrap();
+        let test_dir = tmp.path().join("docs");
+        fs::create_dir(&test_dir).unwrap();
+
+        let config = AppConfig {
+            index_directory: tmp.path().join("index"),
+            ..Default::default()
+        };
+        let mut service = ApplicationService::new(config).unwrap();
+        let result = service.add_folder(&test_dir);
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("no configuration file")
+        );
     }
 }

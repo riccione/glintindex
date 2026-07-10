@@ -81,14 +81,39 @@ cargo install --path crates/glintindex-cli
 
 ## Usage
 
+### Initialize configuration
+
+```bash
+glintindex init
+```
+
 ### Index files
 
 ```bash
 # Index all configured folders
 glintindex index
 
-# Index a specific folder
-glintindex index --folder /path/to/docs
+# Index a specific folder (also adds it to configuration)
+glintindex index --folder ~/Documents
+```
+
+### Manage folders
+
+```bash
+# List all configured folders
+glintindex folders list
+
+# Add a folder to configuration
+glintindex folders add ~/Documents
+
+# Remove a folder from configuration
+glintindex folders remove ~/Documents
+
+# Enable a disabled folder
+glintindex folders enable ~/Documents
+
+# Disable a folder (keeps it in config)
+glintindex folders disable ~/Documents
 ```
 
 ### Search
@@ -102,6 +127,16 @@ glintindex search "TODO fix"
 
 ```bash
 glintindex stats
+```
+
+### Clear index
+
+```bash
+# Clear with confirmation prompt
+glintindex clear
+
+# Skip confirmation
+glintindex clear --yes
 ```
 
 ### Rebuild index
