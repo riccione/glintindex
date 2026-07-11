@@ -44,7 +44,7 @@ pub fn view<'a>(state: &'a AppState) -> iced::Element<'a, Message> {
     let preview = preview::view(selected);
 
     // Split view: results (1/3) + preview (2/3)
-    let split = row![results, preview].spacing(4);
+    let split = row![results, preview].spacing(4).height(iced::Length::Fill);
 
     // Main layout: header | split | status
     let layout = column![

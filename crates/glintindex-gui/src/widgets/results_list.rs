@@ -9,9 +9,6 @@ use iced::widget::{Column, column, container, mouse_area, scrollable, text};
 use crate::message::Message;
 use glintindex_core::SearchResult;
 
-/// The maximum number of visible results before scrolling kicks in.
-const MAX_VISIBLE_HEIGHT: f32 = 500.0;
-
 /// Creates the results list widget.
 ///
 /// Each result is rendered as a clickable item showing the filename
@@ -63,5 +60,5 @@ pub fn view<'a>(results: &'a [SearchResult], selected: Option<usize>) -> Column<
         })
         .collect();
 
-    column![scrollable(items).height(iced::Length::Fixed(MAX_VISIBLE_HEIGHT))]
+    column![scrollable(items).height(iced::Length::Fill)]
 }
