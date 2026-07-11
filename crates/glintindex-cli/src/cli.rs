@@ -30,10 +30,7 @@ pub fn run() -> anyhow::Result<()> {
 
     let config_path = match &cli.config {
         Some(path) => path.clone(),
-        None => AppPaths::new()
-            .config_file()
-            .to_string_lossy()
-            .into_owned(),
+        None => AppPaths::new().config_file().to_string_lossy().into_owned(),
     };
 
     match cli.command {

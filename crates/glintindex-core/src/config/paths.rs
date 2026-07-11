@@ -57,7 +57,10 @@ impl AppPaths {
             .unwrap_or_else(|| PathBuf::from("."))
             .join("glintindex");
 
-        Self { config_dir, data_dir }
+        Self {
+            config_dir,
+            data_dir,
+        }
     }
 
     /// Returns the application configuration directory.
