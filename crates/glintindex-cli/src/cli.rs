@@ -1,4 +1,5 @@
 use clap::Parser as _;
+use glintindex_core::AppPaths;
 
 use crate::commands::{self, Command};
 
@@ -14,9 +15,9 @@ pub struct Cli {
     #[arg(short, long)]
     pub verbose: bool,
 
-    /// Path to the configuration file
-    #[arg(short, long, default_value = "index.toml")]
-    pub config: String,
+    /// Path to the configuration file (default: platform-specific location)
+    #[arg(short, long)]
+    pub config: Option<String>,
 
     #[command(subcommand)]
     pub command: Command,
@@ -27,15 +28,23 @@ pub fn run() -> anyhow::Result<()> {
 
     init_logging(cli.verbose);
 
+    let config_path = match &cli.config {
+        Some(path) => path.clone(),
+        None => AppPaths::new()
+            .config_file()
+            .to_string_lossy()
+            .into_owned(),
+    };
+
     match cli.command {
-        Command::Init => commands::init::execute(&cli.config),
-        Command::Index(args) => commands::index::execute(&cli.config, args),
-        Command::Search(args) => commands::search::execute(&cli.config, args),
-        Command::Stats => commands::stats::execute(&cli.config),
-        Command::Rebuild => commands::rebuild::execute(&cli.config),
-        Command::Config => commands::config::execute(&cli.config),
-        Command::Folders(args) => commands::folders::execute(&cli.config, args.command),
-        Command::Clear(args) => commands::clear::execute(&cli.config, args),
+        Command::Init => commands::init::execute(&config_path),
+        Command::Index(args) => commands::index::execute(&config_path, args),
+        Command::Search(args) => commands::search::execute(&config_path, args),
+        Command::Stats => commands::stats::execute(&config_path),
+        Command::Rebuild => commands::rebuild::execute(&config_path),
+        Command::Config => commands::config::execute(&config_path),
+        Command::Folders(args) => commands::folders::execute(&config_path, args.command),
+        Command::Clear(args) => commands::clear::execute(&config_path, args),
     }
 }
 
@@ -72,7 +81,7 @@ mod tests {
     fn parse_config_flag() {
         let cli =
             Cli::try_parse_from(["glintindex", "--config", "/tmp/test.toml", "stats"]).unwrap();
-        assert_eq!(cli.config, "/tmp/test.toml");
+        assert_eq!(cli.config.as_deref(), Some("/tmp/test.toml"));
     }
 
     #[test]
