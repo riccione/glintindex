@@ -14,7 +14,11 @@ path = "src/main.rs"
 [dependencies]
 glintindex-core.workspace = true
 iced = { workspace = true, features = ["tokio"] }
+tokio.workspace = true
 open.workspace = true
 log.workspace = true
 env_logger.workspace = true
 rfd.workspace = true
+
+[dev-dependencies]
+tempfile = "3"

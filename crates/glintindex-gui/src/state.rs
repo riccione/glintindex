@@ -32,6 +32,14 @@ pub struct AppState {
     pub selected_index: Option<usize>,
     /// Status message displayed in the status bar.
     pub status: String,
+    /// Whether a debounced search is pending.
+    pub search_pending: bool,
+    /// The query for which a debounced search is pending.
+    pub pending_query: String,
+
+    // ── Recent Searches ─────────────────────────────────────────
+    /// Whether the recent searches dropdown is visible.
+    pub recent_searches_open: bool,
 
     // ── Settings ────────────────────────────────────────────────
     /// Whether the settings window is currently visible.
@@ -66,6 +74,9 @@ impl AppState {
             results: Vec::new(),
             selected_index: None,
             status,
+            search_pending: false,
+            pending_query: String::new(),
+            recent_searches_open: false,
             settings_open: false,
             settings_page: SettingsPage::General,
             indexed_folders,
@@ -104,6 +115,11 @@ impl AppState {
         self.indexed_folders.iter().filter(|f| f.enabled).count()
     }
 
+    /// Returns the recent searches from the service.
+    pub fn recent_searches(&self) -> &[String] {
+        self.service.recent_searches()
+    }
+
     /// Computes a status message reflecting the current index state.
     fn compute_status(service: &ApplicationService) -> String {
         let folder_count = service.indexed_folders().len();
@@ -116,5 +132,141 @@ impl AppState {
                 if folder_count == 1 { "" } else { "s" }
             )
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::app::application;
+    use crate::message::Message;
+    use glintindex_core::ApplicationService;
+    use std::time::UNIX_EPOCH;
+
+    fn create_test_state() -> AppState {
+        let tmp = tempfile::tempdir().unwrap();
+        let config_path = tmp.path().join("config.toml");
+        let config = glintindex_core::AppConfig {
+            index_directory: tmp.path().join("index"),
+            ..Default::default()
+        };
+        glintindex_core::config::loader::save(&config_path, &config).unwrap();
+        let service = ApplicationService::with_config_path(&config_path).unwrap();
+        AppState::new(service)
+    }
+
+    fn create_test_result(filename: &str) -> glintindex_core::SearchResult {
+        glintindex_core::SearchResult::new(
+            glintindex_core::Document::new(
+                std::path::PathBuf::from(filename),
+                100,
+                UNIX_EPOCH,
+                "content".to_string(),
+            ),
+            1.0,
+            "snippet".to_string(),
+        )
+    }
+
+    #[test]
+    fn navigate_up_empty_results() {
+        let mut state = create_test_state();
+        state.results = Vec::new();
+        state.selected_index = None;
+
+        let message = Message::NavigateUp;
+        let _ = application::update(&mut state, message);
+        assert!(state.selected_index.is_none());
+    }
+
+    #[test]
+    fn navigate_down_empty_results() {
+        let mut state = create_test_state();
+        state.results = Vec::new();
+        state.selected_index = None;
+
+        let message = Message::NavigateDown;
+        let _ = application::update(&mut state, message);
+        assert!(state.selected_index.is_none());
+    }
+
+    #[test]
+    fn navigate_up_no_selection() {
+        let mut state = create_test_state();
+        state.results = vec![create_test_result("file1.txt")];
+        state.selected_index = None;
+
+        let message = Message::NavigateUp;
+        let _ = application::update(&mut state, message);
+        assert_eq!(state.selected_index, Some(0));
+    }
+
+    #[test]
+    fn navigate_down_no_selection() {
+        let mut state = create_test_state();
+        state.results = vec![create_test_result("file1.txt")];
+        state.selected_index = None;
+
+        let message = Message::NavigateDown;
+        let _ = application::update(&mut state, message);
+        assert_eq!(state.selected_index, Some(0));
+    }
+
+    #[test]
+    fn navigate_up_at_top() {
+        let mut state = create_test_state();
+        state.results = vec![create_test_result("file1.txt")];
+        state.selected_index = Some(0);
+
+        let message = Message::NavigateUp;
+        let _ = application::update(&mut state, message);
+        assert_eq!(state.selected_index, Some(0));
+    }
+
+    #[test]
+    fn navigate_down_at_bottom() {
+        let mut state = create_test_state();
+        state.results = vec![create_test_result("file1.txt")];
+        state.selected_index = Some(0);
+
+        let message = Message::NavigateDown;
+        let _ = application::update(&mut state, message);
+        assert_eq!(state.selected_index, Some(0));
+    }
+
+    #[test]
+    fn navigate_up_middle() {
+        let mut state = create_test_state();
+        state.results = vec![
+            create_test_result("file1.txt"),
+            create_test_result("file2.txt"),
+            create_test_result("file3.txt"),
+        ];
+        state.selected_index = Some(2);
+
+        let message = Message::NavigateUp;
+        let _ = application::update(&mut state, message);
+        assert_eq!(state.selected_index, Some(1));
+    }
+
+    #[test]
+    fn navigate_down_middle() {
+        let mut state = create_test_state();
+        state.results = vec![
+            create_test_result("file1.txt"),
+            create_test_result("file2.txt"),
+            create_test_result("file3.txt"),
+        ];
+        state.selected_index = Some(0);
+
+        let message = Message::NavigateDown;
+        let _ = application::update(&mut state, message);
+        assert_eq!(state.selected_index, Some(1));
+    }
+
+    #[test]
+    fn recent_searches_initially_empty() {
+        let state = create_test_state();
+        assert!(state.recent_searches().is_empty());
     }
 }

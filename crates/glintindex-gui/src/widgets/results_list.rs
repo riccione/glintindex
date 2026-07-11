@@ -3,6 +3,7 @@
 //! Displays search results as a scrollable list of items.
 //! Each item shows the filename and full path.
 //! Supports mouse selection and highlights the active item.
+//! Supports double-click to open files.
 
 use iced::widget::{Column, column, container, mouse_area, scrollable, text};
 
@@ -14,6 +15,7 @@ use glintindex_core::SearchResult;
 /// Each result is rendered as a clickable item showing the filename
 /// and full path. The currently selected item is highlighted.
 /// Clicking an item sends `Message::ResultSelected`.
+/// Double-clicking an item sends `Message::ResultActivated`.
 pub fn view<'a>(results: &'a [SearchResult], selected: Option<usize>) -> Column<'a, Message> {
     if results.is_empty() {
         return column![
@@ -56,6 +58,7 @@ pub fn view<'a>(results: &'a [SearchResult], selected: Option<usize>) -> Column<
 
             mouse_area(styled_item)
                 .on_press(Message::ResultSelected(index))
+                .on_double_click(Message::ResultActivated(index))
                 .into()
         })
         .collect();
