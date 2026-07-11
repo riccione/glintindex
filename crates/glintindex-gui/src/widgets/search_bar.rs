@@ -5,7 +5,7 @@
 //! Enter key presses into `Message::SearchSubmitted`.
 //! Supports keyboard navigation for recent searches dropdown.
 
-use iced::widget::{container, column, text, text_input};
+use iced::widget::{column, container, text, text_input};
 
 use crate::message::Message;
 

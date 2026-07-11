@@ -128,7 +128,10 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
                     state.status = format!("Failed to open: {}", e);
                 } else {
                     let _ = state.service.add_recent_search(state.query.clone());
-                    state.status = format!("Opened: {}", path.file_name().unwrap_or_default().to_string_lossy());
+                    state.status = format!(
+                        "Opened: {}",
+                        path.file_name().unwrap_or_default().to_string_lossy()
+                    );
                 }
             }
             Task::none()
