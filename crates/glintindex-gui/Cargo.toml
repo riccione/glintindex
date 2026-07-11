@@ -13,4 +13,8 @@ path = "src/main.rs"
 
 [dependencies]
 glintindex-core.workspace = true
-iced.workspace = true
+iced = { workspace = true, features = ["tokio"] }
+dirs.workspace = true
+open.workspace = true
+log.workspace = true
+env_logger.workspace = true
