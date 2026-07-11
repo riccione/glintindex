@@ -10,31 +10,15 @@ use crate::message::Message;
 use crate::pages;
 use crate::state::AppState;
 
-/// Returns the default configuration file path for the current platform.
-///
-/// Uses platform-standard locations via the `dirs` crate:
-/// - Linux: `~/.config/glintindex/config.toml`
-/// - macOS: `~/Library/Application Support/glintindex/config.toml`
-/// - Windows: `C:\Users\<user>\AppData\Roaming\glintindex\config.toml`
-fn default_config_path() -> std::path::PathBuf {
-    dirs::config_dir()
-        .unwrap_or_else(|| std::path::PathBuf::from("."))
-        .join("glintindex")
-        .join("config.toml")
-}
-
 /// Boots the application, returning the initial state.
 ///
-/// Initializes `ApplicationService` with the default config path
-/// and wraps it in the application state.
+/// Initializes `ApplicationService` using the default platform config
+/// path and wraps it in the application state.
 pub fn boot() -> (AppState, Task<Message>) {
-    let config_path = default_config_path();
-
-    let service = glintindex_core::ApplicationService::with_config_path(&config_path)
-        .unwrap_or_else(|e| {
-            error!("Failed to initialize ApplicationService: {}", e);
-            panic!("Failed to initialize ApplicationService: {}", e);
-        });
+    let service = glintindex_core::ApplicationService::with_default_config().unwrap_or_else(|e| {
+        error!("Failed to initialize ApplicationService: {}", e);
+        panic!("Failed to initialize ApplicationService: {}", e);
+    });
 
     let state = AppState::new(service);
     (state, Task::none())
