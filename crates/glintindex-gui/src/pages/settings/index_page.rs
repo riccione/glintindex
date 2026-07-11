@@ -95,9 +95,11 @@ pub fn view<'a>(state: &'a AppState) -> iced::Element<'a, Message> {
     let status_section = if state.settings_status.is_empty() {
         column![]
     } else {
-        column![text(state.settings_status.clone())
-            .size(13)
-            .color(iced::Color::from_rgb(0.3, 0.5, 0.8))]
+        column![
+            text(state.settings_status.clone())
+                .size(13)
+                .color(iced::Color::from_rgb(0.3, 0.5, 0.8))
+        ]
     };
 
     let content = column![header, stats_col, status_section]
@@ -114,7 +116,9 @@ pub fn view<'a>(state: &'a AppState) -> iced::Element<'a, Message> {
 /// Creates a label-value row for displaying a statistic.
 fn stat_row(label: String, value: String) -> iced::Element<'static, Message> {
     row![
-        text(label).size(13).color(iced::Color::from_rgb(0.4, 0.4, 0.4)),
+        text(label)
+            .size(13)
+            .color(iced::Color::from_rgb(0.4, 0.4, 0.4)),
         text(value).size(13),
     ]
     .spacing(8)

@@ -48,7 +48,9 @@ pub fn view(_state: &crate::state::AppState) -> iced::Element<'static, Message> 
 /// Creates a label-value row for displaying information.
 fn info_row(label: String, value: String) -> iced::Element<'static, Message> {
     column![
-        text(label).size(12).color(iced::Color::from_rgb(0.4, 0.4, 0.4)),
+        text(label)
+            .size(12)
+            .color(iced::Color::from_rgb(0.4, 0.4, 0.4)),
         text(value).size(14),
     ]
     .spacing(2)

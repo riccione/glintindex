@@ -24,7 +24,9 @@ pub fn view<'a>(state: &'a AppState) -> iced::Element<'a, Message> {
 
     let add_input = text_input("New folder name...", &state.settings_status)
         .on_input(Message::AddIgnoredFolderRequested)
-        .on_submit(Message::AddIgnoredFolderRequested(state.settings_status.clone()))
+        .on_submit(Message::AddIgnoredFolderRequested(
+            state.settings_status.clone(),
+        ))
         .padding(8)
         .width(iced::Length::Fill);
 

@@ -85,7 +85,12 @@ impl AppState {
     ///
     /// Call this after any configuration mutation to keep the UI in sync.
     pub fn refresh_config_snapshot(&mut self) {
-        self.indexed_folders = self.service.indexed_folders().into_iter().cloned().collect();
+        self.indexed_folders = self
+            .service
+            .indexed_folders()
+            .into_iter()
+            .cloned()
+            .collect();
         self.ignored_folders = self.service.ignored_folders().to_vec();
     }
 

@@ -32,7 +32,9 @@ pub fn view<'a>(state: &'a AppState) -> iced::Element<'a, Message> {
     let search = search_bar::view(&state.query);
 
     // Header row: settings button + search bar
-    let header = row![settings_btn, search].spacing(8).align_y(iced::Alignment::Center);
+    let header = row![settings_btn, search]
+        .spacing(8)
+        .align_y(iced::Alignment::Center);
 
     // Results list — left pane, takes available width
     let results = results_list::view(&state.results, state.selected_index);
@@ -45,8 +47,12 @@ pub fn view<'a>(state: &'a AppState) -> iced::Element<'a, Message> {
     let split = row![results, preview].spacing(4);
 
     // Main layout: header | split | status
-    let layout = column![header, split, status_bar::view(&state.status, state.results.len())]
-        .spacing(4);
+    let layout = column![
+        header,
+        split,
+        status_bar::view(&state.status, state.results.len())
+    ]
+    .spacing(4);
 
     container(layout)
         .width(iced::Length::Fill)

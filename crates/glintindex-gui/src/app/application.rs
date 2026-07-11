@@ -154,23 +154,21 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
         }
 
         // ── Indexed Folders ─────────────────────────────────────
-        Message::AddFolderRequested => {
-            Task::perform(
-                async {
-                    rfd::AsyncFileDialog::new()
-                        .set_title("Select Folder to Index")
-                        .pick_folder()
-                        .await
-                },
-                |folder| match folder {
-                    Some(handle) => {
-                        let path = handle.path().to_path_buf();
-                        Message::FolderAdded(path.display().to_string())
-                    }
-                    None => Message::FolderAdded(String::new()),
-                },
-            )
-        }
+        Message::AddFolderRequested => Task::perform(
+            async {
+                rfd::AsyncFileDialog::new()
+                    .set_title("Select Folder to Index")
+                    .pick_folder()
+                    .await
+            },
+            |folder| match folder {
+                Some(handle) => {
+                    let path = handle.path().to_path_buf();
+                    Message::FolderAdded(path.display().to_string())
+                }
+                None => Message::FolderAdded(String::new()),
+            },
+        ),
 
         Message::FolderAdded(path_str) => {
             if path_str.is_empty() {
@@ -287,7 +285,11 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
             match stats_result {
                 Ok(stats) => {
                     let total: u64 = stats.iter().map(|s| s.files_indexed).sum();
-                    state.settings_status = format!("Indexed {} file{}.", total, if total == 1 { "" } else { "s" });
+                    state.settings_status = format!(
+                        "Indexed {} file{}.",
+                        total,
+                        if total == 1 { "" } else { "s" }
+                    );
                 }
                 Err(e) => {
                     state.settings_status = format!("Indexing failed: {}", e);

@@ -20,9 +20,12 @@ pub fn view<'a>(state: &'a AppState) -> iced::Element<'a, Message> {
     let header = column![
         text("Indexed Folders".to_string()).size(20),
         rule::horizontal(1),
-        row![text("Manage folders that are indexed for search.".to_string()).size(13)
-            .color(iced::Color::from_rgb(0.4, 0.4, 0.4)),]
-            .push(add_button),
+        row![
+            text("Manage folders that are indexed for search.".to_string())
+                .size(13)
+                .color(iced::Color::from_rgb(0.4, 0.4, 0.4)),
+        ]
+        .push(add_button),
     ]
     .spacing(8);
 
@@ -37,7 +40,11 @@ pub fn view<'a>(state: &'a AppState) -> iced::Element<'a, Message> {
     } else {
         for folder in &state.indexed_folders {
             let path_display = folder.path.display().to_string();
-            let status_label = if folder.enabled { "Enabled" } else { "Disabled" };
+            let status_label = if folder.enabled {
+                "Enabled"
+            } else {
+                "Disabled"
+            };
             let status_color = if folder.enabled {
                 iced::Color::from_rgb(0.2, 0.6, 0.2)
             } else {
@@ -53,10 +60,10 @@ pub fn view<'a>(state: &'a AppState) -> iced::Element<'a, Message> {
 
             let row_content = row![
                 column![
-                    text(path_display.clone()).size(14).width(iced::Length::Fill),
-                    text(status_label.to_string())
-                        .size(11)
-                        .color(status_color),
+                    text(path_display.clone())
+                        .size(14)
+                        .width(iced::Length::Fill),
+                    text(status_label.to_string()).size(11).color(status_color),
                 ]
                 .spacing(2)
                 .width(iced::Length::Fill),
