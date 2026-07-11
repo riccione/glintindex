@@ -10,6 +10,9 @@ use crate::message::Message;
 use crate::pages;
 use crate::state::AppState;
 
+/// Debounce delay in milliseconds.
+const DEBOUNCE_MS: u64 = 300;
+
 /// Boots the application, returning the initial state.
 ///
 /// Initializes `ApplicationService` using the default platform config
@@ -34,14 +37,42 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
         // ── Search ──────────────────────────────────────────────
         Message::SearchChanged(query) => {
             state.query = query;
+            state.recent_searches_open = false;
 
             if state.query.trim().is_empty() {
                 state.results.clear();
                 state.selected_index = None;
+                state.search_pending = false;
+                state.pending_query.clear();
                 return Task::none();
             }
 
-            let query_obj = glintindex_core::SearchQuery::new(&state.query);
+            // Start debounce timer
+            state.search_pending = true;
+            state.pending_query = state.query.clone();
+
+            Task::perform(
+                async {
+                    tokio::time::sleep(std::time::Duration::from_millis(DEBOUNCE_MS)).await;
+                },
+                |_| Message::SearchDebounced(String::new()),
+            )
+        }
+
+        Message::SearchDebounced(_) => {
+            if !state.search_pending {
+                return Task::none();
+            }
+            state.search_pending = false;
+
+            let query = state.pending_query.clone();
+            state.pending_query.clear();
+
+            if query.trim().is_empty() {
+                return Task::none();
+            }
+
+            let query_obj = glintindex_core::SearchQuery::new(&query);
 
             match state.service.search(&query_obj) {
                 Ok(results) => {
@@ -89,21 +120,50 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
             Task::none()
         }
 
+        Message::ResultActivated(index) => {
+            if index < state.results.len() {
+                let path = state.results[index].document.path.clone();
+                if let Err(e) = open::that(&path) {
+                    error!("Failed to open file: {}", e);
+                    state.status = format!("Failed to open: {}", e);
+                } else {
+                    let _ = state.service.add_recent_search(state.query.clone());
+                    state.status = format!(
+                        "Opened: {}",
+                        path.file_name().unwrap_or_default().to_string_lossy()
+                    );
+                }
+            }
+            Task::none()
+        }
+
         Message::SearchSubmitted => {
             if let Some(index) = state.selected_index {
                 if index < state.results.len() {
-                    let path = &state.results[index].document.path;
-                    if let Err(e) = open::that(path) {
+                    let path = state.results[index].document.path.clone();
+                    if let Err(e) = open::that(&path) {
                         error!("Failed to open file: {}", e);
                         state.status = format!("Failed to open: {}", e);
+                    } else {
+                        let _ = state.service.add_recent_search(state.query.clone());
+                        state.status = format!(
+                            "Opened: {}",
+                            path.file_name().unwrap_or_default().to_string_lossy()
+                        );
                     }
                 }
             } else if !state.results.is_empty() {
                 state.selected_index = Some(0);
-                let path = &state.results[0].document.path;
-                if let Err(e) = open::that(path) {
+                let path = state.results[0].document.path.clone();
+                if let Err(e) = open::that(&path) {
                     error!("Failed to open file: {}", e);
                     state.status = format!("Failed to open: {}", e);
+                } else {
+                    let _ = state.service.add_recent_search(state.query.clone());
+                    state.status = format!(
+                        "Opened: {}",
+                        path.file_name().unwrap_or_default().to_string_lossy()
+                    );
                 }
             }
             Task::none()
@@ -113,6 +173,145 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
             state.results.clear();
             state.selected_index = None;
             state.status = format!("Error: {}", msg);
+            Task::none()
+        }
+
+        // ── File Operations ─────────────────────────────────────
+        Message::OpenFileRequested(index) => {
+            if index < state.results.len() {
+                let path = state.results[index].document.path.clone();
+                if !path.exists() {
+                    state.status = "File not found".to_string();
+                } else if let Err(e) = open::that(&path) {
+                    error!("Failed to open file: {}", e);
+                    state.status = format!("Failed to open: {}", e);
+                } else {
+                    let _ = state.service.add_recent_search(state.query.clone());
+                    state.status = format!(
+                        "Opened: {}",
+                        path.file_name().unwrap_or_default().to_string_lossy()
+                    );
+                }
+            }
+            Task::none()
+        }
+
+        Message::OpenFolderRequested(index) => {
+            if index < state.results.len() {
+                let path = &state.results[index].document.path;
+                let parent = path.parent().unwrap_or(path);
+                if !parent.exists() {
+                    state.status = "Folder not found".to_string();
+                } else if let Err(e) = open::that(parent) {
+                    error!("Failed to open folder: {}", e);
+                    state.status = format!("Failed to open folder: {}", e);
+                } else {
+                    state.status = format!(
+                        "Opened folder: {}",
+                        parent.file_name().unwrap_or_default().to_string_lossy()
+                    );
+                }
+            }
+            Task::none()
+        }
+
+        Message::CopyPathRequested(index) => {
+            if index < state.results.len() {
+                let path = &state.results[index].document.path;
+                let path_str = path.display().to_string();
+                state.status = "Path copied.".to_string();
+                iced::clipboard::write::<Message>(path_str)
+            } else {
+                Task::none()
+            }
+        }
+
+        Message::ClipboardCompleted(msg) => {
+            state.status = msg;
+            Task::none()
+        }
+
+        // ── Recent Searches ─────────────────────────────────────
+        Message::RecentSearchSelected(query) => {
+            state.query = query.clone();
+            state.recent_searches_open = false;
+            state.search_pending = true;
+            state.pending_query = query;
+
+            Task::perform(
+                async {
+                    tokio::time::sleep(std::time::Duration::from_millis(DEBOUNCE_MS)).await;
+                },
+                |_| Message::SearchDebounced(String::new()),
+            )
+        }
+
+        Message::ClearRecentSearches => {
+            if let Err(e) = state.service.add_recent_search(String::new()) {
+                error!("Failed to clear recent searches: {}", e);
+            }
+            state.recent_searches_open = false;
+            state.status = "Recent searches cleared.".to_string();
+            Task::none()
+        }
+
+        // ── Keyboard Navigation ─────────────────────────────────
+        Message::NavigateUp => {
+            if state.results.is_empty() {
+                return Task::none();
+            }
+            let new_index = match state.selected_index {
+                Some(i) if i > 0 => Some(i - 1),
+                Some(i) => Some(i),
+                None => Some(0),
+            };
+            if let Some(i) = new_index {
+                state.selected_index = Some(i);
+                let path = &state.results[i].document.path;
+                state.status = path
+                    .file_name()
+                    .map(|f| f.to_string_lossy().to_string())
+                    .unwrap_or_else(|| path.display().to_string());
+            }
+            Task::none()
+        }
+
+        Message::NavigateDown => {
+            if state.results.is_empty() {
+                return Task::none();
+            }
+            let new_index = match state.selected_index {
+                Some(i) if i + 1 < state.results.len() => Some(i + 1),
+                Some(i) => Some(i),
+                None => Some(0),
+            };
+            if let Some(i) = new_index {
+                state.selected_index = Some(i);
+                let path = &state.results[i].document.path;
+                state.status = path
+                    .file_name()
+                    .map(|f| f.to_string_lossy().to_string())
+                    .unwrap_or_else(|| path.display().to_string());
+            }
+            Task::none()
+        }
+
+        Message::ActivateSelected => {
+            if let Some(index) = state.selected_index {
+                if index < state.results.len() {
+                    let path = state.results[index].document.path.clone();
+                    if let Err(e) = open::that(&path) {
+                        error!("Failed to open file: {}", e);
+                        state.status = format!("Failed to open: {}", e);
+                    } else {
+                        let _ = state.service.add_recent_search(state.query.clone());
+                        state.status = format!(
+                            "Opened: {}",
+                            path.file_name().unwrap_or_default().to_string_lossy()
+                        );
+                    }
+                }
+            }
             Task::none()
         }
 

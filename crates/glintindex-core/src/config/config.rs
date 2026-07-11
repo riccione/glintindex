@@ -33,6 +33,9 @@ pub struct AppConfig {
     pub theme: Theme,
     /// Maximum number of characters in a preview snippet.
     pub max_preview_size: usize,
+    /// Recent search queries, newest first.
+    #[serde(default)]
+    pub recent_searches: Vec<String>,
 }
 
 impl Default for AppConfig {
@@ -43,6 +46,7 @@ impl Default for AppConfig {
             index_directory: defaults::default_index_directory(),
             theme: Theme::default(),
             max_preview_size: defaults::default_max_preview_size(),
+            recent_searches: Vec::new(),
         }
     }
 }
@@ -57,6 +61,26 @@ impl AppConfig {
     pub fn is_ignored(&self, name: &str) -> bool {
         self.ignored_folders.iter().any(|i| i == name)
     }
+
+    /// Adds a query to the recent searches list.
+    ///
+    /// Moves the query to the front if it already exists.
+    /// Trims whitespace and ignores empty queries.
+    /// Limits the list to 20 entries maximum.
+    pub fn add_recent_search(&mut self, query: String) {
+        let trimmed = query.trim().to_string();
+        if trimmed.is_empty() {
+            return;
+        }
+        self.recent_searches.retain(|s| s != &trimmed);
+        self.recent_searches.insert(0, trimmed);
+        self.recent_searches.truncate(20);
+    }
+
+    /// Returns a reference to the recent searches list.
+    pub fn recent_searches(&self) -> &[String] {
+        &self.recent_searches
+    }
 }
 
 #[cfg(test)]
@@ -70,6 +94,7 @@ mod tests {
         assert!(!config.ignored_folders.is_empty());
         assert_eq!(config.max_preview_size, 200);
         assert_eq!(config.theme, Theme::System);
+        assert!(config.recent_searches.is_empty());
     }
 
     #[test]
@@ -102,5 +127,58 @@ mod tests {
         let toml_str = toml::to_string(&config).unwrap();
         let restored: AppConfig = toml::from_str(&toml_str).unwrap();
         assert_eq!(config, restored);
+    }
+
+    #[test]
+    fn add_recent_search_adds_to_front() {
+        let mut config = AppConfig::default();
+        config.add_recent_search("hello".to_string());
+        config.add_recent_search("world".to_string());
+        assert_eq!(config.recent_searches(), &["world", "hello"]);
+    }
+
+    #[test]
+    fn add_recent_search_removes_duplicates() {
+        let mut config = AppConfig::default();
+        config.add_recent_search("hello".to_string());
+        config.add_recent_search("world".to_string());
+        config.add_recent_search("hello".to_string());
+        assert_eq!(config.recent_searches(), &["hello", "world"]);
+    }
+
+    #[test]
+    fn add_recent_search_ignores_empty() {
+        let mut config = AppConfig::default();
+        config.add_recent_search("".to_string());
+        config.add_recent_search("  ".to_string());
+        assert!(config.recent_searches().is_empty());
+    }
+
+    #[test]
+    fn add_recent_search_trims_whitespace() {
+        let mut config = AppConfig::default();
+        config.add_recent_search("  hello  ".to_string());
+        assert_eq!(config.recent_searches(), &["hello"]);
+    }
+
+    #[test]
+    fn add_recent_search_limits_to_20() {
+        let mut config = AppConfig::default();
+        for i in 0..25 {
+            config.add_recent_search(format!("query{i}"));
+        }
+        assert_eq!(config.recent_searches().len(), 20);
+        assert_eq!(config.recent_searches()[0], "query24");
+        assert_eq!(config.recent_searches()[19], "query5");
+    }
+
+    #[test]
+    fn recent_searches_roundtrip_serde() {
+        let mut config = AppConfig::default();
+        config.add_recent_search("hello".to_string());
+        config.add_recent_search("world".to_string());
+        let toml_str = toml::to_string(&config).unwrap();
+        let restored: AppConfig = toml::from_str(&toml_str).unwrap();
+        assert_eq!(config.recent_searches, restored.recent_searches);
     }
 }

@@ -524,6 +524,30 @@ impl ApplicationService {
         self.save_config()?;
         Ok(())
     }
+
+    /// Adds a query to the recent searches list.
+    ///
+    /// The query is added to the front of the list (newest first).
+    /// Empty queries are ignored. Duplicates are removed.
+    /// The list is limited to 20 entries maximum.
+    /// Changes are persisted to the configuration file immediately.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the configuration cannot be saved.
+    pub fn add_recent_search(&mut self, query: String) -> Result<()> {
+        self.config.add_recent_search(query);
+        self.save_config()?;
+        Ok(())
+    }
+
+    /// Returns a reference to the recent searches list.
+    ///
+    /// The list is ordered from newest to oldest, with a maximum
+    /// of 20 entries.
+    pub fn recent_searches(&self) -> &[String] {
+        self.config.recent_searches()
+    }
 }
 
 #[cfg(test)]

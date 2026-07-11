@@ -31,14 +31,42 @@ pub enum Message {
     // ── Search ──────────────────────────────────────────────────
     /// The search input text changed.
     SearchChanged(String),
+    /// A debounced search should execute after the timer fires.
+    SearchDebounced(String),
     /// Search results were received from the index.
     SearchCompleted(Vec<SearchResult>),
     /// A search result was selected by the user.
     ResultSelected(usize),
+    /// A search result was activated (double-click or Enter).
+    ResultActivated(usize),
     /// The search input was submitted (Enter key pressed).
     SearchSubmitted,
     /// An error occurred during a search operation.
     SearchError(String),
+
+    // ── File Operations ─────────────────────────────────────────
+    /// Request to open the selected file with the default application.
+    OpenFileRequested(usize),
+    /// Request to open the containing folder of the selected file.
+    OpenFolderRequested(usize),
+    /// Request to copy the full path of the selected file to clipboard.
+    CopyPathRequested(usize),
+    /// Clipboard operation completed with a status message.
+    ClipboardCompleted(String),
+
+    // ── Recent Searches ─────────────────────────────────────────
+    /// Request to select a recent search query.
+    RecentSearchSelected(String),
+    /// Request to clear all recent searches.
+    ClearRecentSearches,
+
+    // ── Keyboard Navigation ─────────────────────────────────────
+    /// Navigate to the previous result in the list.
+    NavigateUp,
+    /// Navigate to the next result in the list.
+    NavigateDown,
+    /// Activate the currently selected result.
+    ActivateSelected,
 
     // ── Settings Navigation ─────────────────────────────────────
     /// Open the settings window (overlay on main view).
