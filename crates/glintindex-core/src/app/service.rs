@@ -457,6 +457,56 @@ impl ApplicationService {
     pub fn index_path(&self) -> &Path {
         &self.index_path
     }
+
+    /// Returns a reference to the list of ignored folder names.
+    ///
+    /// These folder names are excluded from indexing operations.
+    /// The default set includes `.git`, `.svn`, `.hg`, `node_modules`,
+    /// `__pycache__`, and `.DS_Store`.
+    pub fn ignored_folders(&self) -> &[String] {
+        &self.config.ignored_folders
+    }
+
+    /// Adds a folder name to the ignored folders list.
+    ///
+    /// If the name is already in the list, returns `Ok(())` without
+    /// modification. Changes are persisted to the configuration file
+    /// immediately.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the configuration cannot be saved.
+    pub fn add_ignored_folder(&mut self, name: String) -> Result<()> {
+        if self.config.ignored_folders.contains(&name) {
+            return Ok(());
+        }
+        self.config.ignored_folders.push(name);
+        self.save_config()?;
+        Ok(())
+    }
+
+    /// Removes a folder name from the ignored folders list.
+    ///
+    /// If the name is not in the list, returns an error. Changes are
+    /// persisted to the configuration file immediately.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the name is not found or the configuration
+    /// cannot be saved.
+    pub fn remove_ignored_folder(&mut self, name: &str) -> Result<()> {
+        let before = self.config.ignored_folders.len();
+        self.config.ignored_folders.retain(|n| n != name);
+
+        if self.config.ignored_folders.len() == before {
+            return Err(GlintIndexError::InvalidInput(format!(
+                "ignored folder not found: {name}"
+            )));
+        }
+
+        self.save_config()?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
