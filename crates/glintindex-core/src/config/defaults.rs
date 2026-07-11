@@ -1,13 +1,15 @@
 use std::path::PathBuf;
 
+use super::paths::AppPaths;
+
 /// Returns the default index storage directory.
 ///
-/// Uses platform-standard locations via the `dirs` crate:
+/// Delegates to [`AppPaths`] for platform-correct resolution:
 /// - Linux: `~/.local/share/glintindex/index`
-/// - macOS: `~/Library/Application Support/glintindex/index`
-/// - Windows: `C:\Users\<user>\AppData\Local\glintindex\index`
+/// - macOS: `~/Library/Application Support/GlintIndex/index`
+/// - Windows: `%LOCALAPPDATA%/GlintIndex/index`
 pub fn default_index_directory() -> PathBuf {
-    data_dir().join("index")
+    AppPaths::new().index_dir()
 }
 
 /// Returns the default set of ignored folder names.
@@ -25,12 +27,6 @@ pub fn default_ignored_folders() -> Vec<String> {
 /// Returns the default maximum preview size in characters.
 pub fn default_max_preview_size() -> usize {
     200
-}
-
-fn data_dir() -> PathBuf {
-    dirs::data_local_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("glintindex")
 }
 
 #[cfg(test)]
@@ -54,9 +50,16 @@ mod tests {
         let dir = default_index_directory();
         let s = dir.to_string_lossy();
         assert!(
-            s.contains("glintindex"),
+            s.to_lowercase().contains("glintindex"),
             "expected path to contain 'glintindex', got: {s}"
         );
+    }
+
+    #[test]
+    fn default_index_directory_matches_app_paths() {
+        let from_defaults = default_index_directory();
+        let from_app_paths = AppPaths::new().index_dir();
+        assert_eq!(from_defaults, from_app_paths);
     }
 
     #[test]

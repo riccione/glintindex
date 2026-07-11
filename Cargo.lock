@@ -1506,7 +1506,6 @@ dependencies = [
 name = "glintindex-gui"
 version = "0.1.0"
 dependencies = [
- "dirs",
  "env_logger",
  "glintindex-core",
  "iced",
