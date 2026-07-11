@@ -9,7 +9,7 @@ pub mod traits;
 pub mod watcher;
 
 pub use app::{ApplicationService, ApplicationStatistics, WatcherStatus};
-pub use config::{AppConfig, Theme};
+pub use config::{AppConfig, AppPaths, Theme};
 pub use error::{GlintIndexError, Result};
 pub use index::{IndexService, IndexStatistics};
 pub use model::{Document, IndexedFolder, SearchQuery, SearchResult};

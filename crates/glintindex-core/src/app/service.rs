@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-use crate::config::{AppConfig, loader};
+use crate::config::{AppConfig, AppPaths, loader};
 use crate::error::{GlintIndexError, Result};
 use crate::index::IndexService;
 use crate::model::{IndexedFolder, SearchQuery, SearchResult};
@@ -89,6 +89,23 @@ impl ApplicationService {
             index_path,
             watcher: None,
         })
+    }
+
+    /// Creates a new application service using the default platform
+    /// configuration file path.
+    ///
+    /// This is the primary constructor for both CLI and GUI entry points.
+    /// It loads (or creates) the configuration file at the default
+    /// platform-specific location via [`AppPaths`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the configuration file exists but cannot be
+    /// parsed, or if the index cannot be opened or created.
+    pub fn with_default_config() -> Result<Self> {
+        let paths = AppPaths::new();
+        paths.ensure_directories()?;
+        Self::with_config_path(&paths.config_file())
     }
 
     /// Loads configuration from the given TOML file path and initializes
