@@ -114,15 +114,31 @@ pub enum Message {
     /// Search highlights were updated in the preview.
     SearchHighlightsUpdated(String),
 
-    // ── Index Management ────────────────────────────────────────
-    /// Request to index all enabled folders.
+    // ── Background Indexing ─────────────────────────────────────
+    /// Request to start indexing all enabled folders in background.
+    StartIndexing,
+    /// Request to start rebuilding the index in background.
+    StartRebuild,
+    /// Periodic progress update from background job.
+    ProgressTick,
+    /// Background indexing completed successfully.
+    IndexingCompleted(String),
+    /// Background indexing failed with an error message.
+    IndexingFailed(String),
+    /// Background rebuild completed successfully.
+    RebuildCompleted(String),
+    /// Background rebuild failed with an error message.
+    RebuildFailed(String),
+
+    // ── Legacy Index Management (kept for compatibility) ────────
+    /// Request to index all enabled folders (deprecated, use StartIndexing).
     IndexRequested,
     /// Indexing completed with a status message.
     IndexCompleted(String),
-    /// Request to rebuild the index from scratch.
-    RebuildRequested,
-    /// Rebuild completed with a status message.
-    RebuildCompleted(String),
+    /// Request to rebuild the index from scratch (deprecated, use StartRebuild).
+    RebuildRequestedLegacy,
+    /// Rebuild completed with a status message (legacy).
+    RebuildCompletedLegacy(String),
     /// Request to clear all indexed documents.
     ClearRequested,
     /// Clear completed with a status message.
