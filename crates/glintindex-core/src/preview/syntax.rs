@@ -102,7 +102,7 @@ impl SyntaxHighlighter {
             }
         };
 
-        let theme = &self.theme_set.themes["base16-ocean.dark"];
+        let theme = &self.theme_set.themes["InspiredGitHub"];
         let mut highlighter = HighlightLines::new(syntax, theme);
 
         let mut lines = Vec::new();

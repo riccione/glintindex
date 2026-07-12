@@ -24,13 +24,17 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
             column![
                 text("Loading preview...")
                     .size(14)
-                    .color(iced::Color::from_rgb(0.5, 0.5, 0.5))
+                    .color(iced::Color::from_rgb(0.3, 0.3, 0.3))
             ]
             .align_x(iced::Alignment::Center),
         )
         .width(Length::Fill)
         .height(Length::Fill)
         .padding(12)
+        .style(|_theme: &iced::Theme| container::Style {
+            background: Some(iced::Background::Color(iced::Color::from_rgb(0.92, 0.92, 0.92))),
+            ..container::Style::default()
+        })
         .into();
     }
 
@@ -39,16 +43,20 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
             column![
                 text("Preview Error")
                     .size(14)
-                    .color(iced::Color::from_rgb(0.8, 0.2, 0.2)),
+                    .color(iced::Color::from_rgb(0.8, 0.1, 0.1)),
                 text(error.clone())
                     .size(12)
-                    .color(iced::Color::from_rgb(0.6, 0.6, 0.6)),
+                    .color(iced::Color::from_rgb(0.3, 0.3, 0.3)),
             ]
             .spacing(8),
         )
         .width(Length::Fill)
         .height(Length::Fill)
         .padding(12)
+        .style(|_theme: &iced::Theme| container::Style {
+            background: Some(iced::Background::Color(iced::Color::from_rgb(0.92, 0.92, 0.92))),
+            ..container::Style::default()
+        })
         .into();
     }
 
@@ -64,10 +72,10 @@ fn placeholder_view(state: &AppState) -> Element<'_, Message> {
         column![
             text("GlintIndex")
                 .size(16)
-                .color(iced::Color::from_rgb(0.4, 0.4, 0.4)),
+                .color(iced::Color::from_rgb(0.2, 0.2, 0.2)),
             text("Search for files to preview their content")
                 .size(12)
-                .color(iced::Color::from_rgb(0.5, 0.5, 0.5)),
+                .color(iced::Color::from_rgb(0.3, 0.3, 0.3)),
         ]
         .spacing(8)
         .align_x(iced::Alignment::Center)
@@ -75,10 +83,10 @@ fn placeholder_view(state: &AppState) -> Element<'_, Message> {
         column![
             text("Select a result")
                 .size(14)
-                .color(iced::Color::from_rgb(0.5, 0.5, 0.5)),
+                .color(iced::Color::from_rgb(0.3, 0.3, 0.3)),
             text("Click or navigate to a search result to preview")
                 .size(12)
-                .color(iced::Color::from_rgb(0.6, 0.6, 0.6)),
+                .color(iced::Color::from_rgb(0.4, 0.4, 0.4)),
         ]
         .spacing(4)
         .align_x(iced::Alignment::Center)
@@ -86,7 +94,7 @@ fn placeholder_view(state: &AppState) -> Element<'_, Message> {
         column![
             text("Loading preview...")
                 .size(14)
-                .color(iced::Color::from_rgb(0.5, 0.5, 0.5))
+                .color(iced::Color::from_rgb(0.3, 0.3, 0.3))
         ]
         .align_x(iced::Alignment::Center)
     };
@@ -95,6 +103,10 @@ fn placeholder_view(state: &AppState) -> Element<'_, Message> {
         .width(Length::Fill)
         .height(Length::Fill)
         .padding(12)
+        .style(|_theme: &iced::Theme| container::Style {
+            background: Some(iced::Background::Color(iced::Color::from_rgb(0.92, 0.92, 0.92))),
+            ..container::Style::default()
+        })
         .into()
 }
 
@@ -111,7 +123,7 @@ fn preview_content<'a>(preview: &'a PreviewOutput, search_query: &str) -> Elemen
                     preview.lines.len() * 50 // approximate
                 ))
                 .size(11)
-                .color(iced::Color::from_rgb(0.7, 0.5, 0.0)),
+                .color(iced::Color::from_rgb(0.5, 0.3, 0.0)),
             )
             .padding(iced::Padding::from([4, 8]))
             .width(Length::Fill),
@@ -124,7 +136,7 @@ fn preview_content<'a>(preview: &'a PreviewOutput, search_query: &str) -> Elemen
             container(
                 text(format!("Encoding: {:?}", preview.encoding))
                     .size(11)
-                    .color(iced::Color::from_rgb(0.5, 0.5, 0.7)),
+                    .color(iced::Color::from_rgb(0.3, 0.3, 0.5)),
             )
             .padding(iced::Padding::from([2, 8]))
             .width(Length::Fill),
@@ -145,6 +157,10 @@ fn preview_content<'a>(preview: &'a PreviewOutput, search_query: &str) -> Elemen
         .width(Length::Fill)
         .height(Length::Fill)
         .padding(0)
+        .style(|_theme: &iced::Theme| container::Style {
+            background: Some(iced::Background::Color(iced::Color::from_rgb(0.92, 0.92, 0.92))),
+            ..container::Style::default()
+        })
         .into()
 }
 
@@ -153,17 +169,61 @@ fn create_line_row<'a>(line: &'a PreviewLine, _search_query: &str) -> Element<'a
     // Line number
     let line_number = text(format!("{:>4} ", line.line_number))
         .size(12)
-        .color(iced::Color::from_rgb(0.4, 0.4, 0.4))
+        .color(iced::Color::from_rgb(0.3, 0.3, 0.3))
         .font(iced::Font::MONOSPACE);
 
-    // Line content - for now use plain text with basic color
-    // TODO: Apply syntax highlighting spans and match highlights
-    let content = text(&line.text)
-        .size(12)
-        .color(iced::Color::from_rgb(0.9, 0.9, 0.9))
-        .font(iced::Font::MONOSPACE);
+    // Build syntax-highlighted content from spans
+    let mut content_row = row![].spacing(0);
 
-    row![line_number, content]
+    if line.syntax_spans.is_empty() {
+        // No syntax info — render plain text in black
+        content_row = content_row.push(
+            text(&line.text)
+                .size(12)
+                .color(iced::Color::from_rgb(0.0, 0.0, 0.0))
+                .font(iced::Font::MONOSPACE),
+        );
+    } else {
+        let mut last_end = 0;
+        for (start, end, style) in &line.syntax_spans {
+            // Fill gap with unstyled text
+            if *start > last_end {
+                let gap = &line.text[last_end..*start];
+                content_row = content_row.push(
+                    text(gap.to_string())
+                        .size(12)
+                        .color(iced::Color::from_rgb(0.0, 0.0, 0.0))
+                        .font(iced::Font::MONOSPACE),
+                );
+            }
+            // Styled span
+            let segment = &line.text[*start..*end];
+            let fg = style.foreground;
+            content_row = content_row.push(
+                text(segment.to_string())
+                    .size(12)
+                    .color(iced::Color::from_rgb(
+                        fg.0 as f32 / 255.0,
+                        fg.1 as f32 / 255.0,
+                        fg.2 as f32 / 255.0,
+                    ))
+                    .font(iced::Font::MONOSPACE),
+            );
+            last_end = *end;
+        }
+        // Remaining text after last span
+        if last_end < line.text.len() {
+            let remainder = &line.text[last_end..];
+            content_row = content_row.push(
+                text(remainder.to_string())
+                    .size(12)
+                    .color(iced::Color::from_rgb(0.0, 0.0, 0.0))
+                    .font(iced::Font::MONOSPACE),
+            );
+        }
+    }
+
+    row![line_number, content_row]
         .spacing(0)
         .align_y(iced::Alignment::Center)
         .into()
