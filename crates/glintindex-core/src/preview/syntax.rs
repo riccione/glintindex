@@ -68,15 +68,9 @@ impl SyntaxHighlighter {
 
     /// Detects the syntax for a file based on its extension.
     pub fn detect_syntax(&self, path: &Path) -> Option<&syntect::parsing::SyntaxReference> {
-        let extension = path
-            .extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or("");
+        let extension = path.extension().and_then(|e| e.to_str()).unwrap_or("");
 
-        let file_name = path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("");
+        let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
 
         // Try by extension first
         if let Some(syntax) = self.syntax_set.find_syntax_by_extension(extension) {
@@ -93,11 +87,7 @@ impl SyntaxHighlighter {
     }
 
     /// Highlights multiple lines of code.
-    pub fn highlight_lines(
-        &self,
-        text: &str,
-        path: &Path,
-    ) -> Vec<HighlightedLine> {
+    pub fn highlight_lines(&self, text: &str, path: &Path) -> Vec<HighlightedLine> {
         let syntax = match self.detect_syntax(path) {
             Some(s) => s,
             None => {
@@ -148,9 +138,11 @@ impl SyntaxHighlighter {
                                 display_end,
                                 Style::new(
                                     (fg.r, fg.g, fg.b),
-                                    style.font_style
+                                    style
+                                        .font_style
                                         .contains(syntect::highlighting::FontStyle::BOLD),
-                                    style.font_style
+                                    style
+                                        .font_style
                                         .contains(syntect::highlighting::FontStyle::ITALIC),
                                 ),
                             ));

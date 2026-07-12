@@ -3,8 +3,8 @@
 //! Wires together the state, messages, and view into a running
 //! Iced application using the function-based API.
 
-use iced::{Element, Task};
 use glintindex_core::PreviewService;
+use iced::{Element, Task};
 use log::error;
 
 use crate::message::Message;
@@ -128,9 +128,7 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
                 let path_clone = path.clone();
 
                 return Task::perform(
-                    async move {
-                        preview_service.load_preview(&path_clone, &search_query)
-                    },
+                    async move { preview_service.load_preview(&path_clone, &search_query) },
                     Message::PreviewLoaded,
                 );
             }
@@ -344,9 +342,7 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
             let path_clone = path.clone();
 
             Task::perform(
-                async move {
-                    preview_service.load_preview(&path_clone, &search_query)
-                },
+                async move { preview_service.load_preview(&path_clone, &search_query) },
                 Message::PreviewLoaded,
             )
         }
@@ -381,9 +377,7 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
                 let search_query = state.preview_search_query.clone();
 
                 Task::perform(
-                    async move {
-                        preview_service.load_preview(&path, &search_query)
-                    },
+                    async move { preview_service.load_preview(&path, &search_query) },
                     Message::PreviewLoaded,
                 )
             } else {

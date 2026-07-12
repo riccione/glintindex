@@ -11,7 +11,7 @@ use crate::preview::encoding::Encoding;
 use crate::preview::highlight::{self, HighlightedMatch};
 use crate::preview::loader;
 use crate::preview::loader::LoadConfig;
-use crate::preview::syntax::{SyntaxHighlighter, Style};
+use crate::preview::syntax::{Style, SyntaxHighlighter};
 
 /// Configuration for the preview service.
 #[derive(Debug, Clone)]
@@ -91,11 +91,7 @@ impl PreviewService {
     ///
     /// Returns a complete preview output with syntax highlighting,
     /// line numbers, and search match highlights.
-    pub fn load_preview(
-        &self,
-        path: &Path,
-        search_query: &str,
-    ) -> PreviewOutput {
+    pub fn load_preview(&self, path: &Path, search_query: &str) -> PreviewOutput {
         // Check cache first
         {
             let cache = self.cache.lock().unwrap_or_else(|e| e.into_inner());
@@ -174,13 +170,11 @@ impl PreviewService {
         highlighted_lines
             .into_iter()
             .enumerate()
-            .map(|(i, line)| {
-                PreviewLine {
-                    line_number: i + 1,
-                    text: line.text,
-                    syntax_spans: line.spans,
-                    match_highlights: Vec::new(),
-                }
+            .map(|(i, line)| PreviewLine {
+                line_number: i + 1,
+                text: line.text,
+                syntax_spans: line.spans,
+                match_highlights: Vec::new(),
             })
             .collect()
     }

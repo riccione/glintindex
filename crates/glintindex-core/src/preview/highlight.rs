@@ -74,10 +74,7 @@ pub fn combine_highlights(
             .get(match_idx)
             .map(|m| m.start)
             .unwrap_or(usize::MAX);
-        let match_end = matches
-            .get(match_idx)
-            .map(|m| m.end)
-            .unwrap_or(usize::MAX);
+        let match_end = matches.get(match_idx).map(|m| m.end).unwrap_or(usize::MAX);
 
         if pos >= syntax_end {
             syntax_idx += 1;

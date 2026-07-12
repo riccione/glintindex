@@ -21,9 +21,11 @@ const LINE_NUMBER_WIDTH: f32 = 45.0;
 pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
     if state.preview_loading {
         return container(
-            column![text("Loading preview...")
-                .size(14)
-                .color(iced::Color::from_rgb(0.5, 0.5, 0.5))]
+            column![
+                text("Loading preview...")
+                    .size(14)
+                    .color(iced::Color::from_rgb(0.5, 0.5, 0.5))
+            ]
             .align_x(iced::Alignment::Center),
         )
         .width(Length::Fill)
@@ -81,9 +83,11 @@ fn placeholder_view(state: &AppState) -> Element<'_, Message> {
         .spacing(4)
         .align_x(iced::Alignment::Center)
     } else {
-        column![text("Loading preview...")
-            .size(14)
-            .color(iced::Color::from_rgb(0.5, 0.5, 0.5))]
+        column![
+            text("Loading preview...")
+                .size(14)
+                .color(iced::Color::from_rgb(0.5, 0.5, 0.5))
+        ]
         .align_x(iced::Alignment::Center)
     };
 

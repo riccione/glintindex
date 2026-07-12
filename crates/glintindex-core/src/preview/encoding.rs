@@ -133,18 +133,14 @@ pub fn detect_from_file(path: &Path) -> crate::error::Result<EncodingResult> {
 /// Decodes UTF-16 Little Endian bytes to a String.
 fn decode_utf16_le(bytes: &[u8]) -> String {
     let chunks = bytes.chunks_exact(2);
-    let decoded: Vec<u16> = chunks
-        .map(|c| u16::from_le_bytes([c[0], c[1]]))
-        .collect();
+    let decoded: Vec<u16> = chunks.map(|c| u16::from_le_bytes([c[0], c[1]])).collect();
     String::from_utf16_lossy(&decoded)
 }
 
 /// Decodes UTF-16 Big Endian bytes to a String.
 fn decode_utf16_be(bytes: &[u8]) -> String {
     let chunks = bytes.chunks_exact(2);
-    let decoded: Vec<u16> = chunks
-        .map(|c| u16::from_be_bytes([c[0], c[1]]))
-        .collect();
+    let decoded: Vec<u16> = chunks.map(|c| u16::from_be_bytes([c[0], c[1]])).collect();
     String::from_utf16_lossy(&decoded)
 }
 

@@ -100,10 +100,7 @@ pub fn load_file(path: &Path, config: &LoadConfig) -> LoadResult {
     let metadata = match std::fs::metadata(path) {
         Ok(m) => m,
         Err(e) => {
-            return LoadResult::error(
-                format!("Cannot read file: {}", e),
-                0,
-            );
+            return LoadResult::error(format!("Cannot read file: {}", e), 0);
         }
     };
 
@@ -113,18 +110,12 @@ pub fn load_file(path: &Path, config: &LoadConfig) -> LoadResult {
     if file_size > config.max_size {
         match load_truncated(path, config.max_size) {
             Ok(result) => result,
-            Err(e) => LoadResult::error(
-                format!("Failed to load file: {}", e),
-                file_size,
-            ),
+            Err(e) => LoadResult::error(format!("Failed to load file: {}", e), file_size),
         }
     } else {
         match load_complete(path) {
             Ok(result) => result,
-            Err(e) => LoadResult::error(
-                format!("Failed to load file: {}", e),
-                file_size,
-            ),
+            Err(e) => LoadResult::error(format!("Failed to load file: {}", e), file_size),
         }
     }
 }
@@ -137,11 +128,7 @@ fn load_complete(path: &Path) -> crate::error::Result<LoadResult> {
     if result.is_binary {
         Ok(LoadResult::binary(file_size))
     } else {
-        Ok(LoadResult::success(
-            result.text,
-            result.encoding,
-            file_size,
-        ))
+        Ok(LoadResult::success(result.text, result.encoding, file_size))
     }
 }
 
@@ -163,11 +150,7 @@ fn load_truncated(path: &Path, max_bytes: u64) -> crate::error::Result<LoadResul
     } else {
         let mut content = result.text;
         content.push_str("\n\nPreview truncated.\nOnly the first 1 MB is displayed.");
-        Ok(LoadResult::truncated(
-            content,
-            result.encoding,
-            file_size,
-        ))
+        Ok(LoadResult::truncated(content, result.encoding, file_size))
     }
 }
 
