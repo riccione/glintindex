@@ -21,6 +21,15 @@ pub fn execute(config_path: &str) -> Result<()> {
         println!("  Files indexed: {}", last.files_indexed);
         println!("  Files skipped: {}", last.files_skipped);
         println!("  Files failed:  {}", last.files_failed);
+        if last.parser_errors > 0 || last.parser_panics > 0 {
+            println!("\nParser issues:");
+            if last.parser_errors > 0 {
+                println!("  Parser errors:  {}", last.parser_errors);
+            }
+            if last.parser_panics > 0 {
+                println!("  Parser panics:  {}", last.parser_panics);
+            }
+        }
     }
 
     Ok(())
@@ -39,9 +48,11 @@ mod tests {
 
     #[test]
     fn stats_with_indexing_result() {
-        let result = IndexingResult::new(10, 200, 180, 15, 5);
+        let result = IndexingResult::new(10, 200, 180, 15, 5, 3, 1);
         let stats = ApplicationStatistics::new(180, 3).with_last_indexing_result(result);
         let last = stats.last_indexing_result.unwrap();
         assert_eq!(last.files_indexed, 180);
+        assert_eq!(last.parser_errors, 3);
+        assert_eq!(last.parser_panics, 1);
     }
 }

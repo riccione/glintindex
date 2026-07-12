@@ -1,9 +1,10 @@
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
 use walkdir::WalkDir;
 
-use crate::error::{GlintIndexError, Result};
+use crate::error::Result;
 use crate::index::IndexService;
 use crate::model::Document;
 use crate::parser::ParserRegistry;
@@ -112,12 +113,29 @@ impl<'a> FilesystemScanner<'a> {
                         tracing::warn!("failed to index {}: {err}", path.display());
                         stats.inc_files_failed();
                     } else {
+                        tracing::info!("Indexed: {}", path.display());
                         stats.inc_files_indexed();
                     }
                 }
-                Err(err) => {
-                    tracing::warn!("failed to read {}: {err}", path.display());
+                Err(FileParseOutcome::ReadError(err)) => {
+                    tracing::warn!("Skipping unreadable file: {}\n  Reason: {err}", path.display());
                     stats.inc_files_failed();
+                }
+                Err(FileParseOutcome::ParserError(parser_name, err)) => {
+                    tracing::warn!(
+                        "Skipping corrupted {parser_name}: {}\n  Reason: {err}",
+                        path.display()
+                    );
+                    stats.inc_parser_errors();
+                    stats.inc_files_skipped();
+                }
+                Err(FileParseOutcome::ParserPanic(parser_name)) => {
+                    tracing::error!(
+                        "{parser_name} parser panicked: {}\n  Parser panic recovered.",
+                        path.display()
+                    );
+                    stats.inc_parser_panics();
+                    stats.inc_files_skipped();
                 }
             }
         }
@@ -130,17 +148,15 @@ impl<'a> FilesystemScanner<'a> {
         let mut combined = ScannerStatistics::new();
         for dir in directories {
             let stats = self.scan_directory(dir)?;
-            combined.directories_scanned += stats.directories_scanned;
-            combined.files_discovered += stats.files_discovered;
-            combined.files_indexed += stats.files_indexed;
-            combined.files_skipped += stats.files_skipped;
-            combined.files_failed += stats.files_failed;
+            combined.merge(&stats);
         }
         Ok(combined)
     }
 
-    fn process_file(&self, path: &Path) -> Result<Document> {
-        let bytes = std::fs::read(path)?;
+    fn process_file(&self, path: &Path) -> std::result::Result<Document, FileParseOutcome> {
+        let bytes = std::fs::read(path).map_err(|e| {
+            FileParseOutcome::ReadError(format!("I/O error: {e}"))
+        })?;
 
         // Skip binary files for plain text parsing
         // Document parsers handle their own binary formats
@@ -148,22 +164,65 @@ impl<'a> FilesystemScanner<'a> {
             != crate::parser::PlainTextParser::new().supported_extensions();
 
         if !is_binary_format && parser::is_likely_binary(&bytes) {
-            return Err(GlintIndexError::Other("binary file detected".into()));
+            return Err(FileParseOutcome::ReadError("binary file detected".into()));
         }
 
         let parser = self.parser_registry.parser_for(path);
-        let parse_result = parser.parse(&bytes, path)?;
+        let parser_name = parser_type_name(path);
 
-        let metadata = std::fs::metadata(path)?;
-        let size = metadata.len();
-        let modified = metadata.modified().unwrap_or(UNIX_EPOCH);
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            parser.parse(&bytes, path)
+        }));
 
-        Ok(Document::new(
-            path.to_path_buf(),
-            size,
-            modified,
-            parse_result.content,
-        ))
+        match result {
+            Ok(Ok(parse_result)) => {
+                let metadata = std::fs::metadata(path).map_err(|e| {
+                    FileParseOutcome::ReadError(format!("metadata read error: {e}"))
+                })?;
+                let size = metadata.len();
+                let modified = metadata.modified().unwrap_or(UNIX_EPOCH);
+
+                Ok(Document::new(
+                    path.to_path_buf(),
+                    size,
+                    modified,
+                    parse_result.content,
+                ))
+            }
+            Ok(Err(err)) => Err(FileParseOutcome::ParserError(
+                parser_name.to_string(),
+                format!("{err}"),
+            )),
+            Err(_panic) => Err(FileParseOutcome::ParserPanic(parser_name.to_string())),
+        }
+    }
+}
+
+/// Outcome of parsing a single file, distinguishing error types for statistics.
+#[derive(Debug)]
+enum FileParseOutcome {
+    /// File could not be read (I/O error, binary detection, etc.).
+    ReadError(String),
+    /// Parser returned an error (corrupted file, unsupported format, etc.).
+    ParserError(String, String),
+    /// Parser panicked (caught via catch_unwind).
+    ParserPanic(String),
+}
+
+/// Returns a human-readable parser name for logging based on file extension.
+fn parser_type_name(path: &Path) -> &'static str {
+    match path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+    {
+        "pdf" => "PDF",
+        "docx" | "docm" => "DOCX",
+        "xlsx" | "xlsm" | "xlsb" | "xls" => "XLSX",
+        "pptx" | "pptm" => "PPTX",
+        "rtf" => "RTF",
+        "odt" => "ODT",
+        _ => "text",
     }
 }
 
@@ -348,5 +407,172 @@ mod tests {
         assert_eq!(stats.files_discovered, 3);
         assert_eq!(stats.files_indexed, 2);
         assert!(stats.directories_scanned >= 1);
+    }
+
+    // --- Fault tolerance tests ---
+
+    #[test]
+    fn corrupted_pdf_does_not_stop_scan() {
+        let (tmp, root) = setup_test_dir();
+        // Not a valid PDF at all
+        fs::write(root.join("broken.pdf"), b"not a pdf file").unwrap();
+        fs::write(root.join("good.txt"), "hello").unwrap();
+
+        let service = create_index_service(&tmp);
+        let scanner = FilesystemScanner::new(&service);
+        let stats = scanner.scan_directory(&root).unwrap();
+
+        assert_eq!(stats.files_indexed, 1);
+        assert_eq!(stats.parser_errors, 1);
+        assert_eq!(stats.parser_panics, 0);
+    }
+
+    #[test]
+    fn corrupted_docx_does_not_stop_scan() {
+        let (tmp, root) = setup_test_dir();
+        fs::write(root.join("broken.docx"), b"not a docx").unwrap();
+        fs::write(root.join("good.txt"), "hello").unwrap();
+
+        let service = create_index_service(&tmp);
+        let scanner = FilesystemScanner::new(&service);
+        let stats = scanner.scan_directory(&root).unwrap();
+
+        assert_eq!(stats.files_indexed, 1);
+        assert_eq!(stats.parser_errors, 1);
+    }
+
+    #[test]
+    fn corrupted_xlsx_does_not_stop_scan() {
+        let (tmp, root) = setup_test_dir();
+        fs::write(root.join("broken.xlsx"), b"not an xlsx").unwrap();
+        fs::write(root.join("good.txt"), "hello").unwrap();
+
+        let service = create_index_service(&tmp);
+        let scanner = FilesystemScanner::new(&service);
+        let stats = scanner.scan_directory(&root).unwrap();
+
+        assert_eq!(stats.files_indexed, 1);
+        assert_eq!(stats.parser_errors, 1);
+    }
+
+    #[test]
+    fn corrupted_pptx_does_not_stop_scan() {
+        let (tmp, root) = setup_test_dir();
+        fs::write(root.join("broken.pptx"), b"not a pptx").unwrap();
+        fs::write(root.join("good.txt"), "hello").unwrap();
+
+        let service = create_index_service(&tmp);
+        let scanner = FilesystemScanner::new(&service);
+        let stats = scanner.scan_directory(&root).unwrap();
+
+        assert_eq!(stats.files_indexed, 1);
+        assert_eq!(stats.parser_errors, 1);
+    }
+
+    #[test]
+    fn corrupted_rtf_does_not_stop_scan() {
+        let (tmp, root) = setup_test_dir();
+        // RTF starts with {\rtf but content is garbage
+        fs::write(root.join("broken.rtf"), b"{\\rtf invalid garbage content}").unwrap();
+        fs::write(root.join("good.txt"), "hello").unwrap();
+
+        let service = create_index_service(&tmp);
+        let scanner = FilesystemScanner::new(&service);
+        let stats = scanner.scan_directory(&root).unwrap();
+
+        // RTF parser may return an error or parse garbage - either way scan continues
+        assert_eq!(stats.files_discovered, 2);
+        assert!(stats.files_indexed + stats.parser_errors >= 1);
+    }
+
+    #[test]
+    fn corrupted_odt_does_not_stop_scan() {
+        let (tmp, root) = setup_test_dir();
+        fs::write(root.join("broken.odt"), b"not an odt").unwrap();
+        fs::write(root.join("good.txt"), "hello").unwrap();
+
+        let service = create_index_service(&tmp);
+        let scanner = FilesystemScanner::new(&service);
+        let stats = scanner.scan_directory(&root).unwrap();
+
+        assert_eq!(stats.files_indexed, 1);
+        assert_eq!(stats.parser_errors, 1);
+    }
+
+    #[test]
+    fn multiple_failures_in_one_run() {
+        let (tmp, root) = setup_test_dir();
+        // Mix of valid and corrupted files
+        fs::write(root.join("good1.txt"), "hello").unwrap();
+        fs::write(root.join("broken.pdf"), b"not a pdf").unwrap();
+        fs::write(root.join("broken.docx"), b"not a docx").unwrap();
+        fs::write(root.join("broken.xlsx"), b"not an xlsx").unwrap();
+        fs::write(root.join("broken.pptx"), b"not a pptx").unwrap();
+        fs::write(root.join("broken.odt"), b"not an odt").unwrap();
+        fs::write(root.join("good2.txt"), "world").unwrap();
+
+        let service = create_index_service(&tmp);
+        let scanner = FilesystemScanner::new(&service);
+        let stats = scanner.scan_directory(&root).unwrap();
+
+        // Good files should still be indexed
+        assert_eq!(stats.files_indexed, 2);
+        // Corrupted files should be counted as parser errors
+        assert_eq!(stats.parser_errors, 5);
+        assert_eq!(stats.parser_panics, 0);
+        // Total discovered = 7
+        assert_eq!(stats.files_discovered, 7);
+    }
+
+    #[test]
+    fn indexing_continues_after_many_failures() {
+        let (tmp, root) = setup_test_dir();
+        // Create 10 corrupted PDF files and 5 good text files
+        for i in 0..10 {
+            fs::write(root.join(format!("bad{i}.pdf")), b"not a pdf").unwrap();
+        }
+        for i in 0..5 {
+            fs::write(root.join(format!("good{i}.txt")), format!("text {i}")).unwrap();
+        }
+
+        let service = create_index_service(&tmp);
+        let scanner = FilesystemScanner::new(&service);
+        let stats = scanner.scan_directory(&root).unwrap();
+
+        assert_eq!(stats.files_indexed, 5);
+        assert_eq!(stats.parser_errors, 10);
+        assert_eq!(stats.parser_panics, 0);
+        assert_eq!(stats.files_discovered, 15);
+    }
+
+    #[test]
+    fn statistics_updated_correctly_for_mixed_outcomes() {
+        let (tmp, root) = setup_test_dir();
+        fs::write(root.join("good.txt"), "hello").unwrap();
+        fs::write(root.join("broken.pdf"), b"not a pdf").unwrap();
+        let binary_content: Vec<u8> = (0..100).map(|i| (i % 32) as u8).collect();
+        fs::write(root.join("binary.txt"), &binary_content).unwrap();
+
+        let service = create_index_service(&tmp);
+        let scanner = FilesystemScanner::new(&service);
+        let stats = scanner.scan_directory(&root).unwrap();
+
+        assert_eq!(stats.files_discovered, 3);
+        assert_eq!(stats.files_indexed, 1);
+        assert_eq!(stats.parser_errors, 1);
+        assert_eq!(stats.files_failed, 1); // binary detection
+        assert_eq!(stats.parser_panics, 0);
+    }
+
+    #[test]
+    fn parser_name_returns_correct_names() {
+        assert_eq!(parser_type_name(Path::new("test.pdf")), "PDF");
+        assert_eq!(parser_type_name(Path::new("test.docx")), "DOCX");
+        assert_eq!(parser_type_name(Path::new("test.xlsx")), "XLSX");
+        assert_eq!(parser_type_name(Path::new("test.pptx")), "PPTX");
+        assert_eq!(parser_type_name(Path::new("test.rtf")), "RTF");
+        assert_eq!(parser_type_name(Path::new("test.odt")), "ODT");
+        assert_eq!(parser_type_name(Path::new("test.txt")), "text");
+        assert_eq!(parser_type_name(Path::new("test.rs")), "text");
     }
 }
