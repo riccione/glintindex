@@ -20,13 +20,13 @@
 //!
 //! # Usage
 //!
-//! ```
-//! use glintindex_core::tasks::TaskManager;
+//! ```no_run
+//! use std::sync::{Arc, Mutex};
+//! use glintindex_core::{IndexService, TaskManager};
 //!
-//! let manager = TaskManager::new(
-//!     std::path::PathBuf::from("/tmp/index"),
-//!     vec![".git".to_string()],
-//! );
+//! let index_service = IndexService::open_or_create(std::path::Path::new("/tmp/index")).unwrap();
+//! let index_service = Arc::new(Mutex::new(index_service));
+//! let manager = TaskManager::new(index_service);
 //!
 //! // Start a background indexing job
 //! // let id = manager.start_index_all(&config).unwrap();

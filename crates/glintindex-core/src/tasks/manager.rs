@@ -13,6 +13,7 @@ use crate::config::AppConfig;
 use crate::error::{GlintIndexError, Result};
 use crate::index::IndexService;
 use crate::scanner::ScannerStatistics;
+use crate::traits::DocumentIndexer;
 
 use super::job::{JobId, JobState, JobStatus, JobType};
 use super::progress::Progress;
@@ -36,40 +37,38 @@ struct SharedState {
 ///
 /// # Thread Safety
 ///
-/// All internal state is protected by `Arc<Mutex<...>>`. The progress
-/// channel uses `std::sync::mpsc` for lock-free message passing.
+/// The background thread shares the same `IndexService` instance with
+/// the main thread via `Arc<Mutex<IndexService>>`. This avoids
+/// Tantivy lockfile conflicts that would occur if a second instance
+/// were opened on the same path.
 ///
 /// # Examples
 ///
 /// ```
 /// use glintindex_core::tasks::TaskManager;
 ///
-/// let manager = TaskManager::new(
-///     std::path::PathBuf::from("/tmp/index"),
-///     vec![".git".to_string()],
-/// );
-/// assert!(!manager.is_running());
+/// // TaskManager requires a shared IndexService reference
+/// // let manager = TaskManager::new(index_service);
 /// ```
 pub struct TaskManager {
+    /// Shared reference to the index service.
+    index_service: Arc<Mutex<IndexService>>,
     /// Shared state for the current job.
     current_job: Arc<Mutex<Option<SharedState>>>,
     /// Monotonically increasing job ID counter.
     next_id: AtomicU64,
-    /// The index directory path (needed to open IndexService in background thread).
-    index_path: PathBuf,
-    /// Configuration for the scanner (ignored folders).
-    #[allow(dead_code)]
-    ignored_folders: Vec<String>,
 }
 
 impl TaskManager {
     /// Creates a new `TaskManager` with no active jobs.
-    pub fn new(index_path: PathBuf, ignored_folders: Vec<String>) -> Self {
+    ///
+    /// The `index_service` is shared between the main thread and any
+    /// background workers via `Arc<Mutex<...>>`.
+    pub fn new(index_service: Arc<Mutex<IndexService>>) -> Self {
         Self {
+            index_service,
             current_job: Arc::new(Mutex::new(None)),
             next_id: AtomicU64::new(1),
-            index_path,
-            ignored_folders,
         }
     }
 
@@ -167,26 +166,24 @@ impl TaskManager {
         }
 
         // Clone what we need for the background thread
-        let index_path = self.index_path.clone();
+        let index_service = self.index_service.clone();
         let ignored_folders = config.ignored_folders.clone();
         let enabled_folders: Vec<PathBuf> = config
             .enabled_folders()
             .into_iter()
             .map(|f| f.path.clone())
             .collect();
-
-        // Get a reference to our internal shared state for the thread
         let internal_shared = self.current_job.clone();
 
         thread::spawn(move || {
             let result = match job_type {
                 JobType::IndexAll => Self::run_index_all(
-                    &index_path,
+                    &index_service,
                     &ignored_folders,
                     &enabled_folders,
                     &internal_shared,
                 ),
-                JobType::RebuildIndex => Self::run_rebuild(&index_path, &internal_shared),
+                JobType::RebuildIndex => Self::run_rebuild(&index_service, &internal_shared),
             };
 
             // Update final state
@@ -209,16 +206,24 @@ impl TaskManager {
         Ok(id)
     }
 
-    /// Runs the "Index All" operation on the current thread.
+    /// Runs the "Index All" operation on the background thread.
+    ///
+    /// Locks the shared `IndexService` to perform scanning and indexing.
+    /// The lock is held for the duration of the operation, which is
+    /// acceptable since only one job runs at a time.
     fn run_index_all(
-        index_path: &std::path::Path,
+        index_service: &Arc<Mutex<IndexService>>,
         ignored_folders: &[String],
         enabled_folders: &[PathBuf],
         shared: &Arc<Mutex<Option<SharedState>>>,
     ) -> Result<ScannerStatistics> {
-        let index_service = IndexService::open_or_create(index_path)?;
+        // Lock the index service for the duration of the operation
+        let service = index_service
+            .lock()
+            .map_err(|e| GlintIndexError::Other(format!("index service lock poisoned: {e}")))?;
+
         let scanner =
-            crate::scanner::FilesystemScanner::with_custom_ignores(&index_service, ignored_folders);
+            crate::scanner::FilesystemScanner::with_custom_ignores(&service, ignored_folders);
 
         // Update progress: scanning
         if let Ok(mut guard) = shared.lock() {
@@ -236,20 +241,22 @@ impl TaskManager {
             }
         }
 
-        index_service.commit()?;
-        index_service.reload_reader()?;
+        service.commit()?;
+        service.reload_reader()?;
 
         Ok(stats)
     }
 
-    /// Runs the "Rebuild Index" operation on the current thread.
+    /// Runs the "Rebuild Index" operation on the background thread.
+    ///
+    /// Locks the shared `IndexService` to perform the rebuild.
     fn run_rebuild(
-        index_path: &std::path::Path,
+        index_service: &Arc<Mutex<IndexService>>,
         shared: &Arc<Mutex<Option<SharedState>>>,
     ) -> Result<ScannerStatistics> {
-        use crate::traits::DocumentIndexer;
-
-        let index_service = IndexService::open_or_create(index_path)?;
+        let service = index_service
+            .lock()
+            .map_err(|e| GlintIndexError::Other(format!("index service lock poisoned: {e}")))?;
 
         // Update progress
         if let Ok(mut guard) = shared.lock() {
@@ -258,9 +265,9 @@ impl TaskManager {
             }
         }
 
-        index_service.rebuild()?;
-        index_service.commit()?;
-        index_service.reload_reader()?;
+        service.rebuild()?;
+        service.commit()?;
+        service.reload_reader()?;
 
         // Return empty stats for rebuild (no files processed)
         Ok(ScannerStatistics::new())
@@ -275,33 +282,37 @@ mod tests {
     use std::fs;
     use tempfile::TempDir;
 
-    fn test_config(tmp: &TempDir, folders: Vec<IndexedFolder>) -> (AppConfig, PathBuf) {
+    fn setup() -> (TempDir, Arc<Mutex<IndexService>>, AppConfig) {
+        let tmp = TempDir::new().unwrap();
+        let index_path = tmp.path().join("index");
+        let index_service = IndexService::open_or_create(&index_path).unwrap();
+        let index_service = Arc::new(Mutex::new(index_service));
+
+        let scan_dir = tmp.path().join("scan");
+        fs::create_dir(&scan_dir).unwrap();
+        fs::write(scan_dir.join("hello.txt"), "hello world").unwrap();
+
         let config = AppConfig {
-            indexed_folders: folders,
-            index_directory: tmp.path().join("index"),
+            indexed_folders: vec![IndexedFolder::enabled(scan_dir)],
+            index_directory: index_path,
             ..AppConfig::default()
         };
-        (config, tmp.path().join("index"))
+
+        (tmp, index_service, config)
     }
 
     #[test]
     fn task_manager_new() {
-        let tmp = TempDir::new().unwrap();
-        let manager = TaskManager::new(tmp.path().join("index"), vec![]);
+        let (_tmp, index_service, _config) = setup();
+        let manager = TaskManager::new(index_service);
         assert!(!manager.is_running());
         assert!(manager.job_status().is_none());
     }
 
     #[test]
     fn start_index_all() {
-        let tmp = TempDir::new().unwrap();
-        let scan_dir = tmp.path().join("scan");
-        fs::create_dir(&scan_dir).unwrap();
-        fs::write(scan_dir.join("hello.txt"), "hello world").unwrap();
-
-        let folders = vec![IndexedFolder::enabled(scan_dir)];
-        let (config, index_path) = test_config(&tmp, folders);
-        let manager = TaskManager::new(index_path, config.ignored_folders.clone());
+        let (_tmp, index_service, config) = setup();
+        let manager = TaskManager::new(index_service);
 
         let id = manager.start_index_all(&config).unwrap();
         assert_eq!(id.as_u64(), 1);
@@ -326,13 +337,8 @@ mod tests {
 
     #[test]
     fn duplicate_job_rejection() {
-        let tmp = TempDir::new().unwrap();
-        let scan_dir = tmp.path().join("scan");
-        fs::create_dir(&scan_dir).unwrap();
-
-        let folders = vec![IndexedFolder::enabled(scan_dir)];
-        let (config, index_path) = test_config(&tmp, folders);
-        let manager = TaskManager::new(index_path, config.ignored_folders.clone());
+        let (_tmp, index_service, config) = setup();
+        let manager = TaskManager::new(index_service);
 
         let _ = manager.start_index_all(&config);
         assert!(manager.is_running());
@@ -350,9 +356,8 @@ mod tests {
 
     #[test]
     fn start_rebuild() {
-        let tmp = TempDir::new().unwrap();
-        let (config, index_path) = test_config(&tmp, vec![]);
-        let manager = TaskManager::new(index_path, config.ignored_folders.clone());
+        let (_tmp, index_service, config) = setup();
+        let manager = TaskManager::new(index_service);
 
         let id = manager.start_rebuild(&config).unwrap();
         assert_eq!(id.as_u64(), 1);
@@ -368,14 +373,8 @@ mod tests {
 
     #[test]
     fn concurrent_status_queries() {
-        let tmp = TempDir::new().unwrap();
-        let scan_dir = tmp.path().join("scan");
-        fs::create_dir(&scan_dir).unwrap();
-        fs::write(scan_dir.join("hello.txt"), "hello world").unwrap();
-
-        let folders = vec![IndexedFolder::enabled(scan_dir)];
-        let (config, index_path) = test_config(&tmp, folders);
-        let manager = TaskManager::new(index_path, config.ignored_folders.clone());
+        let (_tmp, index_service, config) = setup();
+        let manager = TaskManager::new(index_service);
 
         let _ = manager.start_index_all(&config);
 
@@ -392,14 +391,8 @@ mod tests {
 
     #[test]
     fn progress_updates_during_indexing() {
-        let tmp = TempDir::new().unwrap();
-        let scan_dir = tmp.path().join("scan");
-        fs::create_dir(&scan_dir).unwrap();
-        fs::write(scan_dir.join("hello.txt"), "hello world").unwrap();
-
-        let folders = vec![IndexedFolder::enabled(scan_dir)];
-        let (config, index_path) = test_config(&tmp, folders);
-        let manager = TaskManager::new(index_path, config.ignored_folders.clone());
+        let (_tmp, index_service, config) = setup();
+        let manager = TaskManager::new(index_service);
 
         let _ = manager.start_index_all(&config);
 

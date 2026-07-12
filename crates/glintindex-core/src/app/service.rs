@@ -84,11 +84,12 @@ impl ApplicationService {
     pub fn new(config: AppConfig) -> Result<Self> {
         let index_service = IndexService::open_or_create(&config.index_directory)?;
         let index_path = index_service.index_path().to_path_buf();
-        let task_manager = TaskManager::new(index_path.clone(), config.ignored_folders.clone());
+        let index_service = Arc::new(Mutex::new(index_service));
+        let task_manager = TaskManager::new(index_service.clone());
         Ok(Self {
             config,
             config_path: None,
-            index_service: Arc::new(Mutex::new(index_service)),
+            index_service,
             index_path,
             watcher: None,
             task_manager,
@@ -125,11 +126,12 @@ impl ApplicationService {
         let config = loader::load(config_path)?;
         let index_service = IndexService::open_or_create(&config.index_directory)?;
         let index_path = index_service.index_path().to_path_buf();
-        let task_manager = TaskManager::new(index_path.clone(), config.ignored_folders.clone());
+        let index_service = Arc::new(Mutex::new(index_service));
+        let task_manager = TaskManager::new(index_service.clone());
         Ok(Self {
             config,
             config_path: Some(config_path.to_path_buf()),
-            index_service: Arc::new(Mutex::new(index_service)),
+            index_service,
             index_path,
             watcher: None,
             task_manager,
