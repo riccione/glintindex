@@ -4,7 +4,7 @@
 //! represents a user interaction or system event that may cause the
 //! application state to change.
 
-use glintindex_core::SearchResult;
+use glintindex_core::{PreviewOutput, SearchResult};
 
 /// The active page within the Settings window.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -103,6 +103,16 @@ pub enum Message {
     AddIgnoredFolderRequested(String),
     /// Request to remove an ignored folder name.
     RemoveIgnoredFolderRequested(String),
+
+    // ── Preview ─────────────────────────────────────────────────
+    /// Request to preview a file at the given path.
+    PreviewRequested(String),
+    /// Preview loaded successfully with syntax-highlighted content.
+    PreviewLoaded(PreviewOutput),
+    /// Preview failed with an error message.
+    PreviewFailed(String),
+    /// Search highlights were updated in the preview.
+    SearchHighlightsUpdated(String),
 
     // ── Index Management ────────────────────────────────────────
     /// Request to index all enabled folders.
