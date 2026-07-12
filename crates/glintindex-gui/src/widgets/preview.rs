@@ -32,7 +32,9 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
         .height(Length::Fill)
         .padding(12)
         .style(|_theme: &iced::Theme| container::Style {
-            background: Some(iced::Background::Color(iced::Color::from_rgb(0.92, 0.92, 0.92))),
+            background: Some(iced::Background::Color(iced::Color::from_rgb(
+                0.92, 0.92, 0.92,
+            ))),
             ..container::Style::default()
         })
         .into();
@@ -54,7 +56,9 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
         .height(Length::Fill)
         .padding(12)
         .style(|_theme: &iced::Theme| container::Style {
-            background: Some(iced::Background::Color(iced::Color::from_rgb(0.92, 0.92, 0.92))),
+            background: Some(iced::Background::Color(iced::Color::from_rgb(
+                0.92, 0.92, 0.92,
+            ))),
             ..container::Style::default()
         })
         .into();
@@ -104,7 +108,9 @@ fn placeholder_view(state: &AppState) -> Element<'_, Message> {
         .height(Length::Fill)
         .padding(12)
         .style(|_theme: &iced::Theme| container::Style {
-            background: Some(iced::Background::Color(iced::Color::from_rgb(0.92, 0.92, 0.92))),
+            background: Some(iced::Background::Color(iced::Color::from_rgb(
+                0.92, 0.92, 0.92,
+            ))),
             ..container::Style::default()
         })
         .into()
@@ -158,7 +164,9 @@ fn preview_content<'a>(preview: &'a PreviewOutput, search_query: &str) -> Elemen
         .height(Length::Fill)
         .padding(0)
         .style(|_theme: &iced::Theme| container::Style {
-            background: Some(iced::Background::Color(iced::Color::from_rgb(0.92, 0.92, 0.92))),
+            background: Some(iced::Background::Color(iced::Color::from_rgb(
+                0.92, 0.92, 0.92,
+            ))),
             ..container::Style::default()
         })
         .into()
