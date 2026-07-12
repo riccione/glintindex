@@ -288,7 +288,12 @@ impl TaskManager {
                     &enabled_folders,
                     &internal_shared,
                 ),
-                JobType::RebuildIndex => Self::run_rebuild(&index_service, &internal_shared),
+                JobType::RebuildIndex => Self::run_rebuild(
+                    &index_service,
+                    &ignored_folders,
+                    &enabled_folders,
+                    &internal_shared,
+                ),
             };
 
             // Update final state
@@ -346,27 +351,39 @@ impl TaskManager {
 
     /// Runs the "Rebuild Index" operation on the background thread.
     ///
-    /// Locks the shared `IndexService` to perform the rebuild.
+    /// Clears the index, then re-indexes all configured folders.
+    /// This mirrors the CLI rebuild behavior: clear + re-populate.
     fn run_rebuild(
         index_service: &Arc<Mutex<IndexService>>,
+        ignored_folders: &[String],
+        enabled_folders: &[PathBuf],
         shared: &Arc<Mutex<Option<SharedState>>>,
     ) -> Result<ScannerStatistics> {
         let service = index_service
             .lock()
             .map_err(|e| GlintIndexError::Other(format!("index service lock poisoned: {e}")))?;
 
-        // Update progress
-        if let Ok(mut guard) = shared.lock() {
-            if let Some(ref mut s) = *guard {
-                s.progress.status_message = "Rebuilding index...".to_string();
-            }
-        }
+        let reporter = SharedProgressReporter::new(shared.clone());
 
+        // Step 1: Clear the index
+        reporter.on_operation_started("Rebuilding index...");
         service.rebuild()?;
         service.commit()?;
         service.reload_reader()?;
 
-        Ok(ScannerStatistics::new())
+        // Step 2: Re-index all configured folders
+        reporter.on_operation_started("Scanning directories...");
+        let scanner =
+            crate::scanner::FilesystemScanner::with_custom_ignores(&service, ignored_folders)
+                .with_progress(&reporter);
+
+        let stats = scanner.scan_directories(enabled_folders)?;
+
+        reporter.on_operation_started("Committing index...");
+        service.commit()?;
+        service.reload_reader()?;
+
+        Ok(stats)
     }
 }
 
