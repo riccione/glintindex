@@ -67,8 +67,7 @@ pub fn view<'a>(state: &'a AppState) -> iced::Element<'a, Message> {
     let results_with_actions = column![results, actions].spacing(4);
 
     // Preview pane — right pane, takes remaining width
-    let selected = state.selected_result();
-    let preview = preview::view(selected);
+    let preview = preview::view(state);
 
     // Split view: results (1/3) + preview (2/3)
     let split = row![results_with_actions, preview]

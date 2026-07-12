@@ -4,7 +4,9 @@
 //! The GUI never accesses core internals directly — all interaction
 //! goes through `ApplicationService`.
 
-use glintindex_core::{ApplicationService, ApplicationStatistics, IndexedFolder, SearchResult};
+use glintindex_core::{
+    ApplicationService, ApplicationStatistics, IndexedFolder, PreviewOutput, SearchResult,
+};
 
 use crate::message::SettingsPage;
 
@@ -40,6 +42,16 @@ pub struct AppState {
     // ── Recent Searches ─────────────────────────────────────────
     /// Whether the recent searches dropdown is visible.
     pub recent_searches_open: bool,
+
+    // ── Preview ─────────────────────────────────────────────────
+    /// The current preview output, if any.
+    pub current_preview: Option<PreviewOutput>,
+    /// Whether a preview is currently loading.
+    pub preview_loading: bool,
+    /// Error message from the last preview operation, if any.
+    pub preview_error: Option<String>,
+    /// The search query currently highlighted in the preview.
+    pub preview_search_query: String,
 
     // ── Settings ────────────────────────────────────────────────
     /// Whether the settings window is currently visible.
@@ -77,6 +89,10 @@ impl AppState {
             search_pending: false,
             pending_query: String::new(),
             recent_searches_open: false,
+            current_preview: None,
+            preview_loading: false,
+            preview_error: None,
+            preview_search_query: String::new(),
             settings_open: false,
             settings_page: SettingsPage::General,
             indexed_folders,
@@ -88,6 +104,7 @@ impl AppState {
     }
 
     /// Returns the currently selected search result, if any.
+    #[allow(dead_code)]
     pub fn selected_result(&self) -> Option<&SearchResult> {
         self.selected_index.and_then(|i| self.results.get(i))
     }

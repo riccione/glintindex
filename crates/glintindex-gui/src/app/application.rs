@@ -3,6 +3,7 @@
 //! Wires together the state, messages, and view into a running
 //! Iced application using the function-based API.
 
+use glintindex_core::PreviewService;
 use iced::{Element, Task};
 use log::error;
 
@@ -116,6 +117,20 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
                     .file_name()
                     .map(|f| f.to_string_lossy().to_string())
                     .unwrap_or_else(|| path.display().to_string());
+
+                // Trigger preview loading
+                state.preview_loading = true;
+                state.preview_error = None;
+                state.preview_search_query.clear();
+
+                let preview_service = PreviewService::with_default_config();
+                let search_query = state.query.clone();
+                let path_clone = path.clone();
+
+                return Task::perform(
+                    async move { preview_service.load_preview(&path_clone, &search_query) },
+                    Message::PreviewLoaded,
+                );
             }
             Task::none()
         }
@@ -313,6 +328,61 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
                 }
             }
             Task::none()
+        }
+
+        // ── Preview ─────────────────────────────────────────────
+        Message::PreviewRequested(path_str) => {
+            let path = std::path::PathBuf::from(&path_str);
+            state.preview_loading = true;
+            state.preview_error = None;
+            state.preview_search_query.clear();
+
+            let preview_service = PreviewService::with_default_config();
+            let search_query = state.query.clone();
+            let path_clone = path.clone();
+
+            Task::perform(
+                async move { preview_service.load_preview(&path_clone, &search_query) },
+                Message::PreviewLoaded,
+            )
+        }
+
+        Message::PreviewLoaded(output) => {
+            state.preview_loading = false;
+            if let Some(error) = &output.error {
+                state.preview_error = Some(error.clone());
+                state.current_preview = None;
+                state.status = format!("Preview error: {}", error);
+            } else {
+                state.current_preview = Some(output);
+                state.preview_error = None;
+            }
+            Task::none()
+        }
+
+        Message::PreviewFailed(msg) => {
+            state.preview_loading = false;
+            state.preview_error = Some(msg.clone());
+            state.current_preview = None;
+            state.status = format!("Preview failed: {}", msg);
+            Task::none()
+        }
+
+        Message::SearchHighlightsUpdated(query) => {
+            state.preview_search_query = query;
+            // Re-highlight the preview with new search query if we have a preview
+            if let Some(preview) = &state.current_preview {
+                let path = preview.path.clone();
+                let preview_service = PreviewService::with_default_config();
+                let search_query = state.preview_search_query.clone();
+
+                Task::perform(
+                    async move { preview_service.load_preview(&path, &search_query) },
+                    Message::PreviewLoaded,
+                )
+            } else {
+                Task::none()
+            }
         }
 
         // ── Settings Navigation ─────────────────────────────────
