@@ -17,8 +17,8 @@ const DEFAULT_IGNORED_DIRS: &[&str] = &[
 const SUPPORTED_EXTENSIONS: &[&str] = &[
     // Plain text formats
     "txt", "md", "log", "json", "yaml", "yml", "toml", "xml", "csv", // Source code
-    "rs", "c", "cpp", "h", "hpp", "py", "go", "java", "kt", "js", "jsx", "ts", "tsx", "html", "css",
-    "scss", "sql", "sh", // Document formats
+    "rs", "c", "cpp", "h", "hpp", "py", "go", "java", "kt", "js", "jsx", "ts", "tsx", "html",
+    "css", "scss", "sql", "sh", // Document formats
     "pdf", "docx", "docm", "xlsx", "xlsm", "xlsb", "xls", "pptx", "pptm", "rtf", "odt",
 ];
 

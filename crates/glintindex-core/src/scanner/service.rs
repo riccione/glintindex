@@ -118,7 +118,10 @@ impl<'a> FilesystemScanner<'a> {
                     }
                 }
                 Err(FileParseOutcome::ReadError(err)) => {
-                    tracing::warn!("Skipping unreadable file: {}\n  Reason: {err}", path.display());
+                    tracing::warn!(
+                        "Skipping unreadable file: {}\n  Reason: {err}",
+                        path.display()
+                    );
                     stats.inc_files_failed();
                 }
                 Err(FileParseOutcome::ParserError(parser_name, err)) => {
@@ -154,9 +157,8 @@ impl<'a> FilesystemScanner<'a> {
     }
 
     fn process_file(&self, path: &Path) -> std::result::Result<Document, FileParseOutcome> {
-        let bytes = std::fs::read(path).map_err(|e| {
-            FileParseOutcome::ReadError(format!("I/O error: {e}"))
-        })?;
+        let bytes = std::fs::read(path)
+            .map_err(|e| FileParseOutcome::ReadError(format!("I/O error: {e}")))?;
 
         // Skip binary files for plain text parsing
         // Document parsers handle their own binary formats
@@ -170,9 +172,7 @@ impl<'a> FilesystemScanner<'a> {
         let parser = self.parser_registry.parser_for(path);
         let parser_name = parser_type_name(path);
 
-        let result = catch_unwind(AssertUnwindSafe(|| {
-            parser.parse(&bytes, path)
-        }));
+        let result = catch_unwind(AssertUnwindSafe(|| parser.parse(&bytes, path)));
 
         match result {
             Ok(Ok(parse_result)) => {
@@ -211,11 +211,7 @@ enum FileParseOutcome {
 
 /// Returns a human-readable parser name for logging based on file extension.
 fn parser_type_name(path: &Path) -> &'static str {
-    match path
-        .extension()
-        .and_then(|e| e.to_str())
-        .unwrap_or("")
-    {
+    match path.extension().and_then(|e| e.to_str()).unwrap_or("") {
         "pdf" => "PDF",
         "docx" | "docm" => "DOCX",
         "xlsx" | "xlsm" | "xlsb" | "xls" => "XLSX",
