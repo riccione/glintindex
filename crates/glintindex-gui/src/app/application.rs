@@ -527,8 +527,109 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
 
         Message::IgnoredFolderAdded(_) | Message::IgnoredFolderRemoved(_) => Task::none(),
 
-        // ── Index Management ────────────────────────────────────
+        // ── Background Indexing ─────────────────────────────────────
+        Message::StartIndexing => {
+            if state.service.is_indexing() {
+                state.settings_status = "Indexing already in progress.".to_string();
+                return Task::none();
+            }
+
+            state.operation_in_progress = true;
+            state.settings_status = "Starting background indexing...".to_string();
+
+            match state.service.start_indexing() {
+                Ok(_job_id) => {
+                    // Start polling for progress
+                    return Task::perform(
+                        async {
+                            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                        },
+                        |_| Message::ProgressTick,
+                    );
+                }
+                Err(e) => {
+                    state.settings_status = format!("Failed to start indexing: {}", e);
+                    state.operation_in_progress = false;
+                    error!("Failed to start indexing: {}", e);
+                }
+            }
+            Task::none()
+        }
+
+        Message::StartRebuild => {
+            if state.service.is_indexing() {
+                state.settings_status = "A job is already in progress.".to_string();
+                return Task::none();
+            }
+
+            state.operation_in_progress = true;
+            state.settings_status = "Starting background rebuild...".to_string();
+
+            match state.service.start_rebuild() {
+                Ok(_job_id) => {
+                    // Start polling for progress
+                    return Task::perform(
+                        async {
+                            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                        },
+                        |_| Message::ProgressTick,
+                    );
+                }
+                Err(e) => {
+                    state.settings_status = format!("Failed to start rebuild: {}", e);
+                    state.operation_in_progress = false;
+                    error!("Failed to start rebuild: {}", e);
+                }
+            }
+            Task::none()
+        }
+
+        Message::ProgressTick => {
+            if !state.service.is_indexing() {
+                // Job finished - check final status
+                if let Some(status) = state.service.job_status() {
+                    if status.is_completed() {
+                        state.settings_status = "Operation completed successfully.".to_string();
+                    } else if let Some(ref progress) = status.progress {
+                        state.settings_status = progress.status_message.clone();
+                    }
+                }
+                state.operation_in_progress = false;
+                state.refresh_statistics();
+                return Task::none();
+            }
+
+            // Still running - update progress and schedule next tick
+            if let Some(progress) = state.service.current_progress() {
+                state.settings_status = progress.status_message.clone();
+            }
+
+            Task::perform(
+                async {
+                    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                },
+                |_| Message::ProgressTick,
+            )
+        }
+
+        Message::IndexingCompleted(msg) | Message::RebuildCompleted(msg) => {
+            state.settings_status = msg;
+            state.operation_in_progress = false;
+            state.refresh_statistics();
+            Task::none()
+        }
+
+        Message::IndexingFailed(msg) | Message::RebuildFailed(msg) => {
+            state.settings_status = msg;
+            state.operation_in_progress = false;
+            state.refresh_statistics();
+            Task::none()
+        }
+
+        // ── Legacy Index Management ────────────────────────────────
         Message::IndexRequested => {
+            // Redirect to background indexing
+            let _ = Message::StartIndexing;
             state.operation_in_progress = true;
             state.settings_status = "Indexing all folders...".to_string();
 
@@ -555,7 +656,7 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
             Task::none()
         }
 
-        Message::RebuildRequested => {
+        Message::RebuildRequestedLegacy => {
             state.operation_in_progress = true;
             state.settings_status = "Rebuilding index...".to_string();
 
@@ -594,7 +695,7 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
         }
 
         Message::IndexCompleted(msg)
-        | Message::RebuildCompleted(msg)
+        | Message::RebuildCompletedLegacy(msg)
         | Message::ClearCompleted(msg) => {
             state.settings_status = msg;
             state.operation_in_progress = false;

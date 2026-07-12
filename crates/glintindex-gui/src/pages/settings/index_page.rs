@@ -21,7 +21,7 @@ pub fn view<'a>(state: &'a AppState) -> iced::Element<'a, Message> {
             .on_press_maybe(None)
     } else {
         button(text("Index All".to_string()).size(14))
-            .on_press(Message::IndexRequested)
+            .on_press(Message::StartIndexing)
             .padding(iced::Padding::new(8.0).horizontal(16.0))
     };
 
@@ -31,7 +31,7 @@ pub fn view<'a>(state: &'a AppState) -> iced::Element<'a, Message> {
             .on_press_maybe(None)
     } else {
         button(text("Rebuild Index".to_string()).size(14))
-            .on_press(Message::RebuildRequested)
+            .on_press(Message::StartRebuild)
             .padding(iced::Padding::new(8.0).horizontal(16.0))
     };
 

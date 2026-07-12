@@ -7,6 +7,7 @@ pub mod model;
 pub mod parser;
 pub mod preview;
 pub mod scanner;
+pub mod tasks;
 pub mod traits;
 pub mod watcher;
 
@@ -21,5 +22,6 @@ pub use preview::{
     PreviewOutput, PreviewService, Style, SyntaxHighlighter,
 };
 pub use scanner::{FilesystemScanner, ScannerStatistics};
+pub use tasks::{JobId, JobState, JobStatus, JobType, Progress, TaskManager};
 pub use traits::{DocumentIndexer, DocumentScanner, SearchEngine};
 pub use watcher::{FileWatcher, WatchEvent};

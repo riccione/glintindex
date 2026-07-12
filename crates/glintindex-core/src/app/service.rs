@@ -6,6 +6,7 @@ use crate::error::{GlintIndexError, Result};
 use crate::index::IndexService;
 use crate::model::{IndexedFolder, SearchQuery, SearchResult};
 use crate::scanner::{FilesystemScanner, ScannerStatistics};
+use crate::tasks::{JobId, JobStatus, Progress, TaskManager};
 use crate::watcher::FileWatcher;
 
 use super::statistics::ApplicationStatistics;
@@ -68,6 +69,7 @@ pub struct ApplicationService {
     index_service: Arc<Mutex<IndexService>>,
     index_path: PathBuf,
     watcher: Option<FileWatcher>,
+    task_manager: TaskManager,
 }
 
 impl ApplicationService {
@@ -82,12 +84,14 @@ impl ApplicationService {
     pub fn new(config: AppConfig) -> Result<Self> {
         let index_service = IndexService::open_or_create(&config.index_directory)?;
         let index_path = index_service.index_path().to_path_buf();
+        let task_manager = TaskManager::new(index_path.clone(), config.ignored_folders.clone());
         Ok(Self {
             config,
             config_path: None,
             index_service: Arc::new(Mutex::new(index_service)),
             index_path,
             watcher: None,
+            task_manager,
         })
     }
 
@@ -121,12 +125,14 @@ impl ApplicationService {
         let config = loader::load(config_path)?;
         let index_service = IndexService::open_or_create(&config.index_directory)?;
         let index_path = index_service.index_path().to_path_buf();
+        let task_manager = TaskManager::new(index_path.clone(), config.ignored_folders.clone());
         Ok(Self {
             config,
             config_path: Some(config_path.to_path_buf()),
             index_service: Arc::new(Mutex::new(index_service)),
             index_path,
             watcher: None,
+            task_manager,
         })
     }
 
@@ -473,6 +479,57 @@ impl ApplicationService {
     /// Returns the path where the search index is stored.
     pub fn index_path(&self) -> &Path {
         &self.index_path
+    }
+
+    // ── Background Job Methods ──────────────────────────────────────
+
+    /// Starts indexing all enabled folders on a background thread.
+    ///
+    /// Returns the job ID immediately. The actual indexing happens
+    /// on a background thread. Use `job_status()` or
+    /// `current_progress()` to monitor progress.
+    ///
+    /// Only one job may run at a time. Attempting to start a second
+    /// job while one is already running returns an error.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if a job is already running.
+    pub fn start_indexing(&self) -> Result<JobId> {
+        self.task_manager.start_index_all(&self.config)
+    }
+
+    /// Starts rebuilding the index on a background thread.
+    ///
+    /// Returns the job ID immediately. The actual rebuild happens
+    /// on a background thread.
+    ///
+    /// Only one job may run at a time. Attempting to start a second
+    /// job while one is already running returns an error.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if a job is already running.
+    pub fn start_rebuild(&self) -> Result<JobId> {
+        self.task_manager.start_rebuild(&self.config)
+    }
+
+    /// Returns the status of the current background job, if any.
+    ///
+    /// Returns `None` if no job has been started or the last job
+    /// has been cleaned up.
+    pub fn job_status(&self) -> Option<JobStatus> {
+        self.task_manager.job_status()
+    }
+
+    /// Returns the current progress of the background job, if any.
+    pub fn current_progress(&self) -> Option<Progress> {
+        self.task_manager.current_progress()
+    }
+
+    /// Returns `true` if a background job is currently running.
+    pub fn is_indexing(&self) -> bool {
+        self.task_manager.is_running()
     }
 
     /// Returns a reference to the list of ignored folder names.
