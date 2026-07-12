@@ -172,7 +172,6 @@ fn create_line_row<'a>(line: &'a PreviewLine, _search_query: &str) -> Element<'a
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::app::application;
     use crate::state::AppState;
     use glintindex_core::{ApplicationService, PreviewConfig, PreviewService};
     use std::path::PathBuf;
