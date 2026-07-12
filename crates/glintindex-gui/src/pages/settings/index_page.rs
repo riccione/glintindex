@@ -3,15 +3,15 @@
 //! Provides index management actions (index all, rebuild, clear)
 //! and displays application statistics.
 
-use iced::widget::{button, column, container, row, rule, scrollable, text};
+use iced::widget::{button, column, container, progress_bar, row, rule, scrollable, text};
 
 use crate::message::Message;
 use crate::state::AppState;
 
 /// Renders the Index management settings page.
 ///
-/// Shows action buttons for index operations and displays
-/// current statistics about the index.
+/// Shows action buttons for index operations, displays current
+/// statistics, and shows a progress bar during indexing.
 pub fn view<'a>(state: &'a AppState) -> iced::Element<'a, Message> {
     let busy = state.operation_in_progress;
 
@@ -56,6 +56,58 @@ pub fn view<'a>(state: &'a AppState) -> iced::Element<'a, Message> {
     ]
     .spacing(12);
 
+    // Progress section (shown during indexing)
+    let progress_section = if let Some(ref progress) = state.current_progress {
+        let status_text = text(progress.status_message.clone())
+            .size(14)
+            .color(iced::Color::from_rgb(0.3, 0.5, 0.8));
+
+        // Progress bar
+        let (pos, len) = match progress.total_files {
+            Some(total) if total > 0 => (progress.files_processed as f32, total as f32),
+            _ => (0.0, 1.0), // Indeterminate
+        };
+        let bar = progress_bar(0.0..=len, pos)
+            .length(iced::Length::Fill)
+            .girth(20);
+
+        // File count text
+        let count_text = match progress.total_files {
+            Some(total) => text(format!("{} / {} files", progress.files_processed, total))
+                .size(13)
+                .color(iced::Color::from_rgb(0.4, 0.4, 0.4)),
+            None => text(format!("{} files processed", progress.files_processed))
+                .size(13)
+                .color(iced::Color::from_rgb(0.4, 0.4, 0.4)),
+        };
+
+        // Current file
+        let file_text = match &progress.current_file {
+            Some(name) => text(name.as_str())
+                .size(12)
+                .color(iced::Color::from_rgb(0.5, 0.5, 0.5)),
+            None => text("".to_string())
+                .size(12)
+                .color(iced::Color::from_rgb(0.5, 0.5, 0.5)),
+        };
+
+        // Stats summary
+        let stats_line = format!(
+            "Indexed: {} | Skipped: {} | Errors: {} | Panics: {}",
+            progress.files_indexed,
+            progress.files_skipped,
+            progress.parser_errors,
+            progress.parser_panics
+        );
+        let stats_text = text(stats_line)
+            .size(11)
+            .color(iced::Color::from_rgb(0.5, 0.5, 0.5));
+
+        column![status_text, bar, count_text, file_text, stats_text].spacing(6)
+    } else {
+        column![]
+    };
+
     // Statistics section
     let mut stats_col = column![text("Statistics".to_string()).size(16)].spacing(6);
 
@@ -92,17 +144,19 @@ pub fn view<'a>(state: &'a AppState) -> iced::Element<'a, Message> {
     }
 
     // Operation status
-    let status_section = if state.settings_status.is_empty() {
+    let status_section = if state.settings_status.is_empty() && state.current_progress.is_none() {
         column![]
-    } else {
+    } else if state.current_progress.is_none() && !state.settings_status.is_empty() {
         column![
             text(state.settings_status.clone())
                 .size(13)
                 .color(iced::Color::from_rgb(0.3, 0.5, 0.8))
         ]
+    } else {
+        column![]
     };
 
-    let content = column![header, stats_col, status_section]
+    let content = column![header, progress_section, stats_col, status_section]
         .spacing(16)
         .width(iced::Length::Fill);
 

@@ -6,6 +6,8 @@ use glintindex_core::app::ApplicationService;
 use glintindex_core::config::loader;
 use glintindex_core::model::IndexedFolder;
 
+use crate::progress::ProgressBarReporter;
+
 #[derive(Args)]
 pub struct IndexArgs {
     /// Index a specific folder instead of all configured folders
@@ -67,9 +69,15 @@ pub fn execute(config_path: &str, args: IndexArgs) -> Result<()> {
             println!();
 
             tracing::info!("Indexing folder: {}", resolved.display());
+
+            // Create progress reporter (we don't know total files yet)
+            let reporter = ProgressBarReporter::new(0);
+
             let stats = service
-                .index_folder(&resolved)
+                .index_folder_with_progress(&resolved, &reporter)
                 .context("Failed to index folder")?;
+
+            reporter.finish_and_clear();
 
             println!("Indexing completed\n");
             println!("Folders:       1");
@@ -80,6 +88,12 @@ pub fn execute(config_path: &str, args: IndexArgs) -> Result<()> {
             }
             if stats.files_failed > 0 {
                 println!("Files failed:  {}", stats.files_failed);
+            }
+            if stats.parser_errors > 0 {
+                println!("Parser errors: {}", stats.parser_errors);
+            }
+            if stats.parser_panics > 0 {
+                println!("Parser panics: {}", stats.parser_panics);
             }
         }
         None => {
@@ -99,11 +113,21 @@ pub fn execute(config_path: &str, args: IndexArgs) -> Result<()> {
             }
 
             tracing::info!("Indexing all configured folders");
-            let results = service.index_all().context("Failed to index folders")?;
+
+            // Create progress reporter (we don't know total files yet)
+            let reporter = ProgressBarReporter::new(0);
+
+            let results = service
+                .index_all_with_progress(&reporter)
+                .context("Failed to index folders")?;
+
+            reporter.finish_and_clear();
 
             let total_indexed: u64 = results.iter().map(|s| s.files_indexed).sum();
             let total_skipped: u64 = results.iter().map(|s| s.files_skipped).sum();
             let total_failed: u64 = results.iter().map(|s| s.files_failed).sum();
+            let total_errors: u64 = results.iter().map(|s| s.parser_errors).sum();
+            let total_panics: u64 = results.iter().map(|s| s.parser_panics).sum();
 
             println!("Indexing completed\n");
             println!("Folders:       {}", enabled.len());
@@ -114,6 +138,12 @@ pub fn execute(config_path: &str, args: IndexArgs) -> Result<()> {
             }
             if total_failed > 0 {
                 println!("Files failed:  {}", total_failed);
+            }
+            if total_errors > 0 {
+                println!("Parser errors: {}", total_errors);
+            }
+            if total_panics > 0 {
+                println!("Parser panics: {}", total_panics);
             }
         }
     }

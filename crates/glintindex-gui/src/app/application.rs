@@ -595,6 +595,7 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
                     }
                 }
                 state.operation_in_progress = false;
+                state.current_progress = None;
                 state.refresh_statistics();
                 return Task::none();
             }
@@ -602,6 +603,7 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
             // Still running - update progress and schedule next tick
             if let Some(progress) = state.service.current_progress() {
                 state.settings_status = progress.status_message.clone();
+                state.current_progress = Some(progress);
             }
 
             Task::perform(

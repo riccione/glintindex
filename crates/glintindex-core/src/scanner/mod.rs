@@ -7,6 +7,12 @@
 //! The scanner hides all `walkdir` implementation details behind
 //! a clean, application-specific API.
 //!
+//! # Progress Reporting
+//!
+//! The scanner supports an optional [`ProgressReporter`] callback
+//! interface. When provided, the scanner calls the reporter during
+//! file processing, allowing frontends to display real-time progress.
+//!
 //! # Examples
 //!
 //! ```no_run
@@ -21,8 +27,10 @@
 
 pub(crate) mod ignore;
 pub(crate) mod parser;
+pub mod progress;
 pub mod statistics;
 
+pub use progress::{NoopReporter, ProgressReporter};
 pub use service::FilesystemScanner;
 pub use statistics::ScannerStatistics;
 

@@ -5,7 +5,7 @@ use crate::config::{AppConfig, AppPaths, loader};
 use crate::error::{GlintIndexError, Result};
 use crate::index::IndexService;
 use crate::model::{IndexedFolder, SearchQuery, SearchResult};
-use crate::scanner::{FilesystemScanner, ScannerStatistics};
+use crate::scanner::{FilesystemScanner, NoopReporter, ProgressReporter, ScannerStatistics};
 use crate::tasks::{JobId, JobStatus, Progress, TaskManager};
 use crate::watcher::FileWatcher;
 
@@ -150,12 +150,25 @@ impl ApplicationService {
     /// Returns an error only if the root directory cannot be read or the
     /// index cannot accept documents.
     pub fn index_folder(&self, folder: &Path) -> Result<ScannerStatistics> {
+        self.index_folder_with_progress(folder, &NoopReporter)
+    }
+
+    /// Indexes a single folder with progress reporting.
+    ///
+    /// The reporter is called during file processing to provide
+    /// real-time progress feedback.
+    pub fn index_folder_with_progress(
+        &self,
+        folder: &Path,
+        reporter: &dyn ProgressReporter,
+    ) -> Result<ScannerStatistics> {
         let service = self
             .index_service
             .lock()
             .map_err(|e| GlintIndexError::Other(format!("index service lock poisoned: {e}")))?;
         let scanner =
-            FilesystemScanner::with_custom_ignores(&service, &self.config.ignored_folders);
+            FilesystemScanner::with_custom_ignores(&service, &self.config.ignored_folders)
+                .with_progress(reporter);
         let stats = scanner.scan_directory(folder)?;
         service.commit()?;
         service.reload_reader()?;
@@ -172,12 +185,24 @@ impl ApplicationService {
     /// Returns an error if any folder cannot be scanned or the index
     /// cannot accept documents.
     pub fn index_all(&self) -> Result<Vec<ScannerStatistics>> {
+        self.index_all_with_progress(&NoopReporter)
+    }
+
+    /// Indexes all enabled folders with progress reporting.
+    ///
+    /// The reporter is called during file processing to provide
+    /// real-time progress feedback.
+    pub fn index_all_with_progress(
+        &self,
+        reporter: &dyn ProgressReporter,
+    ) -> Result<Vec<ScannerStatistics>> {
         let service = self
             .index_service
             .lock()
             .map_err(|e| GlintIndexError::Other(format!("index service lock poisoned: {e}")))?;
         let scanner =
-            FilesystemScanner::with_custom_ignores(&service, &self.config.ignored_folders);
+            FilesystemScanner::with_custom_ignores(&service, &self.config.ignored_folders)
+                .with_progress(reporter);
         let folders: Vec<PathBuf> = self
             .config
             .enabled_folders()
