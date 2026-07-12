@@ -6,6 +6,8 @@ use walkdir::WalkDir;
 use crate::error::{GlintIndexError, Result};
 use crate::index::IndexService;
 use crate::model::Document;
+use crate::parser::ParserRegistry;
+use crate::parser::trait_impl::DocumentParser;
 use crate::traits::DocumentIndexer;
 
 use super::ignore::IgnoreRules;
@@ -34,6 +36,7 @@ use super::statistics::ScannerStatistics;
 pub struct FilesystemScanner<'a> {
     index_service: &'a IndexService,
     ignore_rules: IgnoreRules,
+    parser_registry: ParserRegistry,
 }
 
 impl<'a> FilesystemScanner<'a> {
@@ -42,6 +45,7 @@ impl<'a> FilesystemScanner<'a> {
         Self {
             index_service,
             ignore_rules: IgnoreRules::new(),
+            parser_registry: ParserRegistry::new(),
         }
     }
 
@@ -50,6 +54,7 @@ impl<'a> FilesystemScanner<'a> {
         Self {
             index_service,
             ignore_rules: IgnoreRules::with_custom(custom),
+            parser_registry: ParserRegistry::new(),
         }
     }
 
@@ -136,17 +141,29 @@ impl<'a> FilesystemScanner<'a> {
 
     fn process_file(&self, path: &Path) -> Result<Document> {
         let bytes = std::fs::read(path)?;
-        if parser::is_likely_binary(&bytes) {
+
+        // Skip binary files for plain text parsing
+        // Document parsers handle their own binary formats
+        let is_binary_format = self.parser_registry.parser_for(path).supported_extensions()
+            != crate::parser::PlainTextParser::new().supported_extensions();
+
+        if !is_binary_format && parser::is_likely_binary(&bytes) {
             return Err(GlintIndexError::Other("binary file detected".into()));
         }
 
-        let content = String::from_utf8_lossy(&bytes).into_owned();
+        let parser = self.parser_registry.parser_for(path);
+        let parse_result = parser.parse(&bytes, path)?;
 
         let metadata = std::fs::metadata(path)?;
         let size = metadata.len();
         let modified = metadata.modified().unwrap_or(UNIX_EPOCH);
 
-        Ok(Document::new(path.to_path_buf(), size, modified, content))
+        Ok(Document::new(
+            path.to_path_buf(),
+            size,
+            modified,
+            parse_result.content,
+        ))
     }
 }
 
