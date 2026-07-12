@@ -95,6 +95,10 @@ impl<'a> FilesystemScanner<'a> {
         self.reporter
             .on_operation_started("Scanning directories...");
 
+        // Pre-count supported files for accurate progress reporting
+        let total = self.count_supported_files(directory);
+        self.reporter.set_total_files(total);
+
         let walker = WalkDir::new(directory)
             .follow_links(true)
             .into_iter()
@@ -226,6 +230,32 @@ impl<'a> FilesystemScanner<'a> {
             )),
             Err(_panic) => Err(FileParseOutcome::ParserPanic(parser_name.to_string())),
         }
+    }
+
+    /// Counts supported files in a directory for progress reporting.
+    ///
+    /// Performs a lightweight WalkDir traversal counting only files
+    /// with supported extensions. Directories and unsupported files
+    /// are skipped. This is used to set `total_files` on the progress
+    /// reporter before the main processing loop begins.
+    fn count_supported_files(&self, directory: &Path) -> u64 {
+        let ignore_rules = self.ignore_rules.clone();
+
+        WalkDir::new(directory)
+            .follow_links(true)
+            .into_iter()
+            .filter_entry(move |entry| {
+                if entry.file_type().is_dir() {
+                    if let Some(name) = entry.file_name().to_str() {
+                        return !ignore_rules.should_ignore_dir(name);
+                    }
+                }
+                true
+            })
+            .filter_map(|entry| entry.ok())
+            .filter(|entry| entry.file_type().is_file())
+            .filter(|entry| IgnoreRules::is_supported_file(entry.path()))
+            .count() as u64
     }
 }
 
