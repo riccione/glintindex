@@ -15,8 +15,11 @@ const DEFAULT_IGNORED_DIRS: &[&str] = &[
 
 /// Supported file extensions for text file indexing.
 const SUPPORTED_EXTENSIONS: &[&str] = &[
-    "txt", "md", "log", "json", "yaml", "yml", "toml", "xml", "csv", "rs", "c", "cpp", "h", "hpp",
-    "py", "go", "java", "kt", "js", "jsx", "ts", "tsx", "html", "css", "scss", "sql", "sh",
+    // Plain text formats
+    "txt", "md", "log", "json", "yaml", "yml", "toml", "xml", "csv", // Source code
+    "rs", "c", "cpp", "h", "hpp", "py", "go", "java", "kt", "js", "jsx", "ts", "tsx", "html",
+    "css", "scss", "sql", "sh", // Document formats
+    "pdf", "docx", "docm", "xlsx", "xlsm", "xlsb", "xls", "pptx", "pptm", "rtf", "odt",
 ];
 
 /// Decides whether a path should be skipped during filesystem scanning.

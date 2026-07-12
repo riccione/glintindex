@@ -4,6 +4,7 @@ pub mod error;
 pub mod index;
 pub mod logging;
 pub mod model;
+pub mod parser;
 pub mod preview;
 pub mod scanner;
 pub mod traits;
@@ -14,6 +15,7 @@ pub use config::{AppConfig, AppPaths, Theme};
 pub use error::{GlintIndexError, Result};
 pub use index::{IndexService, IndexStatistics};
 pub use model::{Document, IndexedFolder, SearchQuery, SearchResult};
+pub use parser::{DocumentMetadata, DocumentParser, ParseResult, ParserRegistry, PlainTextParser};
 pub use preview::{
     Encoding, EncodingResult, HighlightedMatch, LoadConfig, LoadResult, PreviewConfig, PreviewLine,
     PreviewOutput, PreviewService, Style, SyntaxHighlighter,

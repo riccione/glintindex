@@ -39,6 +39,10 @@ pub struct IndexingResult {
     pub files_skipped: u64,
     /// Number of files that failed to index.
     pub files_failed: u64,
+    /// Number of files skipped due to parser errors (corrupted, invalid format, etc.).
+    pub parser_errors: u64,
+    /// Number of files skipped due to parser panics (caught via catch_unwind).
+    pub parser_panics: u64,
 }
 
 impl ApplicationStatistics {
@@ -66,6 +70,8 @@ impl IndexingResult {
         files_indexed: u64,
         files_skipped: u64,
         files_failed: u64,
+        parser_errors: u64,
+        parser_panics: u64,
     ) -> Self {
         Self {
             directories_scanned,
@@ -73,6 +79,8 @@ impl IndexingResult {
             files_indexed,
             files_skipped,
             files_failed,
+            parser_errors,
+            parser_panics,
         }
     }
 }
@@ -85,6 +93,8 @@ impl From<crate::scanner::ScannerStatistics> for IndexingResult {
             files_indexed: stats.files_indexed,
             files_skipped: stats.files_skipped,
             files_failed: stats.files_failed,
+            parser_errors: stats.parser_errors,
+            parser_panics: stats.parser_panics,
         }
     }
 }
@@ -110,12 +120,14 @@ mod tests {
 
     #[test]
     fn statistics_with_last_indexing_result() {
-        let result = IndexingResult::new(10, 50, 40, 5, 5);
+        let result = IndexingResult::new(10, 50, 40, 5, 5, 2, 1);
         let stats = ApplicationStatistics::new(40, 2).with_last_indexing_result(result);
         let last = stats.last_indexing_result.unwrap();
         assert_eq!(last.files_indexed, 40);
         assert_eq!(last.files_skipped, 5);
         assert_eq!(last.files_failed, 5);
+        assert_eq!(last.parser_errors, 2);
+        assert_eq!(last.parser_panics, 1);
     }
 
     #[test]
@@ -126,6 +138,8 @@ mod tests {
         scanner_stats.files_indexed = 15;
         scanner_stats.files_skipped = 3;
         scanner_stats.files_failed = 2;
+        scanner_stats.parser_errors = 1;
+        scanner_stats.parser_panics = 1;
 
         let result = IndexingResult::from(scanner_stats);
         assert_eq!(result.directories_scanned, 5);
@@ -133,16 +147,20 @@ mod tests {
         assert_eq!(result.files_indexed, 15);
         assert_eq!(result.files_skipped, 3);
         assert_eq!(result.files_failed, 2);
+        assert_eq!(result.parser_errors, 1);
+        assert_eq!(result.parser_panics, 1);
     }
 
     #[test]
     fn indexing_result_new() {
-        let result = IndexingResult::new(1, 2, 3, 4, 5);
+        let result = IndexingResult::new(1, 2, 3, 4, 5, 6, 7);
         assert_eq!(result.directories_scanned, 1);
         assert_eq!(result.files_discovered, 2);
         assert_eq!(result.files_indexed, 3);
         assert_eq!(result.files_skipped, 4);
         assert_eq!(result.files_failed, 5);
+        assert_eq!(result.parser_errors, 6);
+        assert_eq!(result.parser_panics, 7);
     }
 
     #[test]

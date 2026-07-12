@@ -33,34 +33,25 @@ mod tests {
 
     #[test]
     fn init_creates_config_file() {
-        let dir = std::env::temp_dir().join("glintindex_init_test");
-        fs::create_dir_all(&dir).ok();
-        let path = dir.join("init_test.toml");
-        fs::remove_file(&path).ok();
+        let tmp = tempfile::TempDir::new().unwrap();
+        let path = tmp.path().join("init_test.toml");
 
         execute(path.to_str().unwrap()).unwrap();
         assert!(path.exists());
 
         let contents = fs::read_to_string(&path).unwrap();
         assert!(contents.contains("GlintIndex Configuration"));
-
-        fs::remove_file(&path).ok();
-        fs::remove_dir(&dir).ok();
     }
 
     #[test]
     fn init_noop_when_config_exists() {
-        let dir = std::env::temp_dir().join("glintindex_init_test");
-        fs::create_dir_all(&dir).ok();
-        let path = dir.join("init_existing.toml");
+        let tmp = tempfile::TempDir::new().unwrap();
+        let path = tmp.path().join("init_existing.toml");
         fs::write(&path, "existing").unwrap();
 
         execute(path.to_str().unwrap()).unwrap();
 
         let contents = fs::read_to_string(&path).unwrap();
         assert_eq!(contents, "existing");
-
-        fs::remove_file(&path).ok();
-        fs::remove_dir(&dir).ok();
     }
 }
