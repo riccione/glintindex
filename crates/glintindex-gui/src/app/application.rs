@@ -131,7 +131,7 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
                     async move {
                         preview_service.load_preview(&path_clone, &search_query)
                     },
-                    |output| Message::PreviewLoaded(output),
+                    Message::PreviewLoaded,
                 );
             }
             Task::none()
@@ -347,7 +347,7 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
                 async move {
                     preview_service.load_preview(&path_clone, &search_query)
                 },
-                |output| Message::PreviewLoaded(output),
+                Message::PreviewLoaded,
             )
         }
 
@@ -384,7 +384,7 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
                     async move {
                         preview_service.load_preview(&path, &search_query)
                     },
-                    |output| Message::PreviewLoaded(output),
+                    Message::PreviewLoaded,
                 )
             } else {
                 Task::none()

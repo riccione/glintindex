@@ -104,6 +104,7 @@ impl AppState {
     }
 
     /// Returns the currently selected search result, if any.
+    #[allow(dead_code)]
     pub fn selected_result(&self) -> Option<&SearchResult> {
         self.selected_index.and_then(|i| self.results.get(i))
     }
