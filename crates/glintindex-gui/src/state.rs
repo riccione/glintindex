@@ -5,7 +5,7 @@
 //! goes through `ApplicationService`.
 
 use glintindex_core::{
-    ApplicationService, ApplicationStatistics, IndexedFolder, PreviewOutput, SearchResult,
+    ApplicationService, ApplicationStatistics, IndexedFolder, PreviewOutput, Progress, SearchResult,
 };
 
 use crate::message::SettingsPage;
@@ -68,6 +68,8 @@ pub struct AppState {
     pub settings_status: String,
     /// Whether a long-running operation is in progress.
     pub operation_in_progress: bool,
+    /// Current progress information during indexing/rebuild operations.
+    pub current_progress: Option<Progress>,
 }
 
 impl AppState {
@@ -100,6 +102,7 @@ impl AppState {
             statistics,
             settings_status: String::new(),
             operation_in_progress: false,
+            current_progress: None,
         }
     }
 

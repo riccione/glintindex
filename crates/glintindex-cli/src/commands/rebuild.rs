@@ -3,6 +3,8 @@ use std::path::Path;
 use anyhow::{Context, Result};
 use glintindex_core::app::ApplicationService;
 
+use crate::progress::ProgressBarReporter;
+
 pub fn execute(config_path: &str) -> Result<()> {
     let service = ApplicationService::with_config_path(Path::new(config_path))
         .context("Failed to initialize application service. Check your configuration file.")?;
@@ -18,7 +20,15 @@ pub fn execute(config_path: &str) -> Result<()> {
 
     if enabled_count > 0 {
         println!("Re-indexing {} configured folders...", enabled_count);
-        let results = service.index_all().context("Failed to re-index folders")?;
+
+        // Create progress reporter
+        let reporter = ProgressBarReporter::new(0);
+
+        let results = service
+            .index_all_with_progress(&reporter)
+            .context("Failed to re-index folders")?;
+
+        reporter.finish_and_clear();
 
         let total_indexed: u64 = results.iter().map(|s| s.files_indexed).sum();
 

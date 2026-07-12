@@ -17,6 +17,7 @@ clap.workspace = true
 anyhow.workspace = true
 tracing.workspace = true
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+indicatif = "0.18.4"
 
 [dev-dependencies]
 tempfile = "3"

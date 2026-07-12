@@ -21,7 +21,7 @@ pub use preview::{
     Encoding, EncodingResult, HighlightedMatch, LoadConfig, LoadResult, PreviewConfig, PreviewLine,
     PreviewOutput, PreviewService, Style, SyntaxHighlighter,
 };
-pub use scanner::{FilesystemScanner, ScannerStatistics};
+pub use scanner::{FilesystemScanner, NoopReporter, ProgressReporter, ScannerStatistics};
 pub use tasks::{JobId, JobState, JobStatus, JobType, Progress, TaskManager};
 pub use traits::{DocumentIndexer, DocumentScanner, SearchEngine};
 pub use watcher::{FileWatcher, WatchEvent};

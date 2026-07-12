@@ -13,6 +13,7 @@ use crate::traits::DocumentIndexer;
 
 use super::ignore::IgnoreRules;
 use super::parser;
+use super::progress::{NoopReporter, ProgressReporter};
 use super::statistics::ScannerStatistics;
 
 /// High-level filesystem scanner that discovers, parses, and indexes files.
@@ -21,6 +22,13 @@ use super::statistics::ScannerStatistics;
 /// directories, applying ignore rules, filtering by file type, reading
 /// content, and sending results to the [`IndexService`]. It hides all
 /// `walkdir` types from the public API.
+///
+/// # Progress Reporting
+///
+/// The scanner accepts an optional [`ProgressReporter`] via
+/// [`with_progress`](Self::with_progress). When provided, the scanner
+/// calls the reporter during file processing, allowing frontends to
+/// display real-time progress without duplicating scan logic.
 ///
 /// # Examples
 ///
@@ -38,15 +46,17 @@ pub struct FilesystemScanner<'a> {
     index_service: &'a IndexService,
     ignore_rules: IgnoreRules,
     parser_registry: ParserRegistry,
+    reporter: &'a dyn ProgressReporter,
 }
 
 impl<'a> FilesystemScanner<'a> {
-    /// Creates a new scanner with default ignore rules.
+    /// Creates a new scanner with default ignore rules and no progress reporting.
     pub fn new(index_service: &'a IndexService) -> Self {
         Self {
             index_service,
             ignore_rules: IgnoreRules::new(),
             parser_registry: ParserRegistry::new(),
+            reporter: &NoopReporter,
         }
     }
 
@@ -56,7 +66,17 @@ impl<'a> FilesystemScanner<'a> {
             index_service,
             ignore_rules: IgnoreRules::with_custom(custom),
             parser_registry: ParserRegistry::new(),
+            reporter: &NoopReporter,
         }
+    }
+
+    /// Sets a progress reporter for scanning operations.
+    ///
+    /// The reporter is called during file discovery, indexing, and
+    /// error handling to provide real-time progress feedback.
+    pub fn with_progress(mut self, reporter: &'a dyn ProgressReporter) -> Self {
+        self.reporter = reporter;
+        self
     }
 
     /// Scans a single directory recursively and indexes all supported files.
@@ -71,6 +91,9 @@ impl<'a> FilesystemScanner<'a> {
     pub fn scan_directory(&self, directory: &Path) -> Result<ScannerStatistics> {
         let mut stats = ScannerStatistics::new();
         let ignore_rules = self.ignore_rules.clone();
+
+        self.reporter
+            .on_operation_started("Scanning directories...");
 
         let walker = WalkDir::new(directory)
             .follow_links(true)
@@ -101,9 +124,11 @@ impl<'a> FilesystemScanner<'a> {
             // File entry
             let path = entry.path();
             stats.inc_files_discovered();
+            self.reporter.on_file_discovered(path);
 
             if !IgnoreRules::is_supported_file(path) {
                 stats.inc_files_skipped();
+                self.reporter.on_file_skipped(path);
                 continue;
             }
 
@@ -112,9 +137,11 @@ impl<'a> FilesystemScanner<'a> {
                     if let Err(err) = self.index_service.add_document(&doc) {
                         tracing::warn!("failed to index {}: {err}", path.display());
                         stats.inc_files_failed();
+                        self.reporter.on_file_failed(path, &err.to_string());
                     } else {
                         tracing::info!("Indexed: {}", path.display());
                         stats.inc_files_indexed();
+                        self.reporter.on_file_indexed(path);
                     }
                 }
                 Err(FileParseOutcome::ReadError(err)) => {
@@ -123,6 +150,7 @@ impl<'a> FilesystemScanner<'a> {
                         path.display()
                     );
                     stats.inc_files_failed();
+                    self.reporter.on_file_failed(path, &err);
                 }
                 Err(FileParseOutcome::ParserError(parser_name, err)) => {
                     tracing::warn!(
@@ -131,6 +159,7 @@ impl<'a> FilesystemScanner<'a> {
                     );
                     stats.inc_parser_errors();
                     stats.inc_files_skipped();
+                    self.reporter.on_parser_error(path, &parser_name, &err);
                 }
                 Err(FileParseOutcome::ParserPanic(parser_name)) => {
                     tracing::error!(
@@ -139,10 +168,12 @@ impl<'a> FilesystemScanner<'a> {
                     );
                     stats.inc_parser_panics();
                     stats.inc_files_skipped();
+                    self.reporter.on_parser_panic(path, &parser_name);
                 }
             }
         }
 
+        self.reporter.on_operation_completed();
         Ok(stats)
     }
 
