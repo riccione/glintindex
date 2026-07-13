@@ -31,10 +31,10 @@ pub struct WindowState {
     pub selected_index: Option<usize>,
     pub status: String,
     pub preview_text: String,
-    #[allow(dead_code)]
     pub progress_active: bool,
     #[allow(dead_code)]
     pub progress_message: String,
+    pub statistics: Option<glintindex_core::ApplicationStatistics>,
 }
 
 impl GlintIndexWindow {
@@ -45,6 +45,7 @@ impl GlintIndexWindow {
 
         let status = compute_status(&service);
 
+        let statistics = service.statistics().ok();
         let state = Rc::new(RefCell::new(WindowState {
             preview_service: PreviewService::with_default_config(),
             service,
@@ -55,6 +56,7 @@ impl GlintIndexWindow {
             preview_text: String::new(),
             progress_active: false,
             progress_message: String::new(),
+            statistics,
         }));
 
         // ── Build the widget tree ──────────────────────────────────
@@ -125,8 +127,8 @@ impl GlintIndexWindow {
             .position(350)
             .build();
 
-        // Search bar
-        let header = ui::search_bar::build(&state);
+        // Search bar + settings button
+        let (header, settings_btn) = ui::search_bar::build(&state);
 
         // Main vertical layout
         let content = GtkBox::new(Orientation::Vertical, 4);
@@ -143,7 +145,14 @@ impl GlintIndexWindow {
             .child(&content)
             .build();
 
-        // Widget references are captured in closures above
+        // Connect settings button to open settings window
+        {
+            let window_clone = window.clone();
+            let state_clone = state.clone();
+            settings_btn.connect_clicked(move |_| {
+                ui::settings::show_settings(&window_clone, &state_clone);
+            });
+        }
 
         Self { window, state }
     }
@@ -151,6 +160,13 @@ impl GlintIndexWindow {
     /// Presents the window to the user.
     pub fn present(&self) {
         self.window.present();
+    }
+}
+
+impl WindowState {
+    /// Refreshes the cached statistics from the service.
+    pub fn refresh_statistics(&mut self) {
+        self.statistics = self.service.statistics().ok();
     }
 }
 

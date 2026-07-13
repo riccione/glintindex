@@ -1,17 +1,19 @@
 //! Search bar UI component.
 //!
-//! Provides the search input field in the header.
+//! Provides the search input field and settings button in the header.
 
 use std::cell::RefCell;
 use std::rc::Rc;
 
 use gtk::prelude::*;
-use gtk::{Box as GtkBox, HeaderBar, Label, SearchEntry};
+use gtk::{Box as GtkBox, Button, HeaderBar, Label, SearchEntry};
 
 use crate::window::WindowState;
 
-/// Builds the header bar containing the search entry.
-pub fn build(state: &Rc<RefCell<WindowState>>) -> HeaderBar {
+/// Builds the header bar containing the settings button and search entry.
+pub fn build(state: &Rc<RefCell<WindowState>>) -> (HeaderBar, Button) {
+    let settings_btn = Button::builder().label("Settings").build();
+
     let search_entry = SearchEntry::builder()
         .hexpand(true)
         .placeholder_text("Search files…")
@@ -85,5 +87,9 @@ pub fn build(state: &Rc<RefCell<WindowState>>) -> HeaderBar {
     title_widget.append(&Label::builder().label("GlintIndex").build());
     title_widget.append(&search_entry);
 
-    HeaderBar::builder().title_widget(&title_widget).build()
+    let header = HeaderBar::builder().title_widget(&title_widget).build();
+
+    header.pack_start(&settings_btn);
+
+    (header, settings_btn)
 }
