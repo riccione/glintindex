@@ -9,6 +9,7 @@ use std::rc::Rc;
 use gtk::prelude::*;
 use gtk::{
     Application, ApplicationWindow, Box as GtkBox, Orientation, Paned, PolicyType, ScrolledWindow,
+    Window,
 };
 
 use glintindex_core::{ApplicationService, PreviewService, SearchResult};
@@ -35,6 +36,8 @@ pub struct WindowState {
     #[allow(dead_code)]
     pub progress_message: String,
     pub statistics: Option<glintindex_core::ApplicationStatistics>,
+    /// Reference to the currently open settings window, if any.
+    pub settings_window: Option<Window>,
 }
 
 impl GlintIndexWindow {
@@ -57,6 +60,7 @@ impl GlintIndexWindow {
             progress_active: false,
             progress_message: String::new(),
             statistics,
+            settings_window: None,
         }));
 
         // ── Build the widget tree ──────────────────────────────────
@@ -145,12 +149,21 @@ impl GlintIndexWindow {
             .child(&content)
             .build();
 
-        // Connect settings button to open settings window
+        // Connect settings button to open/close settings window (toggle)
         {
             let window_clone = window.clone();
             let state_clone = state.clone();
             settings_btn.connect_clicked(move |_| {
-                ui::settings::show_settings(&window_clone, &state_clone);
+                let mut st = state_clone.borrow_mut();
+                if let Some(ref existing) = st.settings_window {
+                    // Settings window is open — close it
+                    existing.close();
+                    st.settings_window = None;
+                } else {
+                    // Settings window is closed — open it
+                    drop(st);
+                    ui::settings::show_settings(&window_clone, &state_clone);
+                }
             });
         }
 

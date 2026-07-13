@@ -18,7 +18,20 @@ use gtk::{Box as GtkBox, Label, ListBox, ListBoxRow, Orientation, ScrolledWindow
 use crate::window::WindowState;
 
 /// Shows the settings window.
+///
+/// If the settings window is already open, brings it to the front.
+/// Otherwise, creates a new settings window and stores a reference
+/// in `WindowState` so it can be closed by clicking Settings again.
 pub fn show_settings(parent: &impl IsA<Window>, state: &Rc<RefCell<WindowState>>) {
+    // If settings window already exists, just present it
+    {
+        let st = state.borrow();
+        if let Some(ref existing) = st.settings_window {
+            existing.present();
+            return;
+        }
+    }
+
     let settings_window = Window::builder()
         .title("Settings")
         .default_width(700)
@@ -103,5 +116,20 @@ pub fn show_settings(parent: &impl IsA<Window>, state: &Rc<RefCell<WindowState>>
     content_box.append(&pages);
 
     settings_window.set_child(Some(&content_box));
+
+    // Connect close-request to clear the stored reference
+    let state_for_close = state.clone();
+    settings_window.connect_close_request(move |_| {
+        let mut st = state_for_close.borrow_mut();
+        st.settings_window = None;
+        gtk::glib::Propagation::Proceed
+    });
+
+    // Store the window reference in state
+    {
+        let mut st = state.borrow_mut();
+        st.settings_window = Some(settings_window.clone());
+    }
+
     settings_window.present();
 }
