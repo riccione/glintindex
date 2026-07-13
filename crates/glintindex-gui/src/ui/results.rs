@@ -33,17 +33,6 @@ pub fn build(state: &Rc<RefCell<WindowState>>) -> ListBox {
         }
     });
 
-    // Double-click to open file
-    let state_clone = state.clone();
-    listbox.connect_row_activated(move |_listbox, row| {
-        let index = row.index() as usize;
-        let st = state_clone.borrow();
-        if index < st.results.len() {
-            let path = &st.results[index].document.path;
-            let _ = open::that(path);
-        }
-    });
-
     listbox
 }
 
