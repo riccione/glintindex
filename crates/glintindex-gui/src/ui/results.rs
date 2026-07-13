@@ -47,6 +47,23 @@ pub fn build(state: &Rc<RefCell<WindowState>>) -> ListBox {
     listbox
 }
 
+/// Refreshes the results list with new search results.
+///
+/// Clears all existing rows and populates the listbox with
+/// new rows for each search result.
+pub fn refresh_results_list(listbox: &ListBox, results: &[glintindex_core::SearchResult]) {
+    // Clear existing rows
+    while let Some(child) = listbox.first_child() {
+        listbox.remove(&child);
+    }
+
+    // Add new rows for each result
+    for result in results {
+        let row_content = create_result_row(result);
+        listbox.append(&row_content);
+    }
+}
+
 /// Creates a single result row widget.
 #[allow(dead_code)]
 pub fn create_result_row(result: &glintindex_core::SearchResult) -> GtkBox {

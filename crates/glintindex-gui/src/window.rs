@@ -132,7 +132,7 @@ impl GlintIndexWindow {
             .build();
 
         // Search bar + settings button
-        let (header, settings_btn) = ui::search_bar::build(&state);
+        let (header, settings_btn) = ui::search_bar::build(&state, &results_listbox);
 
         // Main vertical layout
         let content = GtkBox::new(Orientation::Vertical, 4);

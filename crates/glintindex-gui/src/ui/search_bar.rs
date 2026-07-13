@@ -6,18 +6,22 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use gtk::prelude::*;
-use gtk::{Box as GtkBox, Button, HeaderBar, Label, SearchEntry};
+use gtk::{Box as GtkBox, Button, HeaderBar, Label, ListBox, SearchEntry};
 
+use crate::ui::results;
 use crate::window::WindowState;
 
 /// Builds the header bar containing the settings button and search entry.
-pub fn build(state: &Rc<RefCell<WindowState>>) -> (HeaderBar, Button) {
+pub fn build(state: &Rc<RefCell<WindowState>>, results_listbox: &ListBox) -> (HeaderBar, Button) {
     let settings_btn = Button::builder().label("Settings").build();
 
     let search_entry = SearchEntry::builder()
         .hexpand(true)
         .placeholder_text("Search files…")
         .build();
+
+    // Clone the listbox for the search callback
+    let listbox_for_search = results_listbox.clone();
 
     // Connect search entry changes
     let state_clone = state.clone();
@@ -30,6 +34,7 @@ pub fn build(state: &Rc<RefCell<WindowState>>) -> (HeaderBar, Button) {
             st.results.clear();
             st.selected_index = None;
             st.status = "Ready".to_string();
+            results::refresh_results_list(&listbox_for_search, &st.results);
             return;
         }
 
@@ -45,17 +50,20 @@ pub fn build(state: &Rc<RefCell<WindowState>>) -> (HeaderBar, Button) {
                     count,
                     if count == 1 { "" } else { "s" }
                 );
+                results::refresh_results_list(&listbox_for_search, &st.results);
             }
             Err(e) => {
                 st.results.clear();
                 st.selected_index = None;
                 st.status = format!("Search error: {}", e);
+                results::refresh_results_list(&listbox_for_search, &st.results);
             }
         }
     });
 
     // Connect search entry activation (Enter key)
     let state_clone = state.clone();
+    let listbox_for_activate = results_listbox.clone();
     search_entry.connect_activate(move |entry| {
         let query = entry.text().to_string();
         let mut st = state_clone.borrow_mut();
@@ -74,11 +82,13 @@ pub fn build(state: &Rc<RefCell<WindowState>>) -> (HeaderBar, Button) {
                     count,
                     if count == 1 { "" } else { "s" }
                 );
+                results::refresh_results_list(&listbox_for_activate, &st.results);
             }
             Err(e) => {
                 st.results.clear();
                 st.selected_index = None;
                 st.status = format!("Search error: {}", e);
+                results::refresh_results_list(&listbox_for_activate, &st.results);
             }
         }
     });
