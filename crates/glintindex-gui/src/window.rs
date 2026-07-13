@@ -9,7 +9,7 @@ use std::rc::Rc;
 use gtk::prelude::*;
 use gtk::{
     Application, ApplicationWindow, Box as GtkBox, Orientation, Paned, PolicyType, ScrolledWindow,
-    Window,
+    TextBuffer, Window,
 };
 
 use glintindex_core::{ApplicationService, PreviewService, SearchResult};
@@ -38,6 +38,8 @@ pub struct WindowState {
     pub statistics: Option<glintindex_core::ApplicationStatistics>,
     /// Reference to the currently open settings window, if any.
     pub settings_window: Option<Window>,
+    /// Reference to the preview TextBuffer for updating content.
+    pub preview_buffer: Option<TextBuffer>,
 }
 
 impl GlintIndexWindow {
@@ -61,6 +63,7 @@ impl GlintIndexWindow {
             progress_message: String::new(),
             statistics,
             settings_window: None,
+            preview_buffer: None,
         }));
 
         // ── Build the widget tree ──────────────────────────────────
@@ -69,7 +72,13 @@ impl GlintIndexWindow {
         let results_listbox = ui::results::build(&state);
 
         // Preview pane (right pane)
-        let (preview_widget, _preview_buffer) = ui::preview::build_with_buffer();
+        let (preview_widget, preview_buffer) = ui::preview::build_with_buffer();
+
+        // Store the preview buffer reference in state
+        {
+            let mut st = state.borrow_mut();
+            st.preview_buffer = Some(preview_buffer);
+        }
 
         // Connect result selection to preview loading
         {
@@ -89,20 +98,12 @@ impl GlintIndexWindow {
                         // Load preview synchronously (fast with cached SyntaxHighlighter)
                         let output = st.preview_service.load_preview(&path, &st.query);
                         st.preview_text = format_preview_content(&output);
-                    }
-                }
-            });
-        }
 
-        // Connect double-click to open file
-        {
-            let state_clone = state.clone();
-            results_listbox.connect_row_activated(move |_listbox, row| {
-                let index = row.index() as usize;
-                let st = state_clone.borrow();
-                if index < st.results.len() {
-                    let path = &st.results[index].document.path;
-                    let _ = open::that(path);
+                        // Update the actual TextBuffer so the preview pane shows content
+                        if let Some(ref buffer) = st.preview_buffer {
+                            buffer.set_text(&st.preview_text);
+                        }
+                    }
                 }
             });
         }
