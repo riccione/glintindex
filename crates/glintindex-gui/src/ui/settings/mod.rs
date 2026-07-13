@@ -37,11 +37,11 @@ pub fn show_settings(parent: &impl IsA<Window>, state: &Rc<RefCell<WindowState>>
         .build();
 
     let page_names = vec![
-        "General".to_string(),
-        "Indexed Folders".to_string(),
-        "Ignored Folders".to_string(),
-        "Index".to_string(),
-        "About".to_string(),
+        "general".to_string(),
+        "indexed_folders".to_string(),
+        "ignored_folders".to_string(),
+        "index".to_string(),
+        "about".to_string(),
     ];
 
     let general_page = general::build(state);
