@@ -3,6 +3,17 @@
 //! Holds both the business logic service and the UI-specific state.
 //! The GUI never accesses core internals directly — all interaction
 //! goes through `ApplicationService`.
+//!
+//! # Preview Content
+//!
+//! The preview panel uses `text_editor::Content` (stored as
+//! `preview_content`) instead of `text()` widgets because Iced's
+//! `text()` does not support text selection. Only `text_editor()`
+//! provides native text selection and OS-native copy shortcuts.
+//! The `Content` must be stored in application state because
+//! `text_editor()` borrows it by reference.
+
+use iced::widget::text_editor;
 
 use glintindex_core::{
     ApplicationService, ApplicationStatistics, IndexedFolder, PreviewOutput, Progress, SearchResult,
@@ -70,6 +81,12 @@ pub struct AppState {
     pub operation_in_progress: bool,
     /// Current progress information during indexing/rebuild operations.
     pub current_progress: Option<Progress>,
+    /// Text editor content for the preview pane.
+    ///
+    /// Stored here because `text_editor()` borrows `Content` by
+    /// reference, so it must outlive the view function. Updated
+    /// whenever a new preview is loaded.
+    pub preview_content: text_editor::Content,
 }
 
 impl AppState {
@@ -103,6 +120,7 @@ impl AppState {
             settings_status: String::new(),
             operation_in_progress: false,
             current_progress: None,
+            preview_content: text_editor::Content::default(),
         }
     }
 
@@ -128,6 +146,33 @@ impl AppState {
     /// Refreshes the cached statistics from the service.
     pub fn refresh_statistics(&mut self) {
         self.statistics = self.service.statistics().ok();
+    }
+
+    /// Updates the preview content for text selection support.
+    ///
+    /// Converts a [`PreviewOutput`] into a `text_editor::Content`
+    /// that supports native text selection and OS-native copy.
+    /// Includes line numbers and metadata notices (truncation,
+    /// encoding) as comments at the top of the content.
+    pub fn update_preview_content(&mut self, preview: &PreviewOutput) {
+        let mut content = String::new();
+
+        if preview.truncated {
+            content.push_str(&format!(
+                "// File truncated (showing first {} bytes)\n",
+                preview.lines.len() * 50
+            ));
+        }
+
+        if preview.encoding != glintindex_core::Encoding::Utf8 {
+            content.push_str(&format!("// Encoding: {:?}\n", preview.encoding));
+        }
+
+        for line in &preview.lines {
+            content.push_str(&format!("{:>4} {}\n", line.line_number, line.text));
+        }
+
+        self.preview_content = text_editor::Content::with_text(&content);
     }
 
     /// Returns the enabled folder count from the cached snapshot.

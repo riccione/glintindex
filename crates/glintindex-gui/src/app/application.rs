@@ -354,6 +354,7 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
                 state.current_preview = None;
                 state.status = format!("Preview error: {}", error);
             } else {
+                state.update_preview_content(&output);
                 state.current_preview = Some(output);
                 state.preview_error = None;
             }
