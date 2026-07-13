@@ -36,12 +36,12 @@ pub fn show_settings(parent: &impl IsA<Window>, state: &Rc<RefCell<WindowState>>
         .transition_type(gtk::StackTransitionType::Crossfade)
         .build();
 
-    let page_names = [
-        "General",
-        "Indexed Folders",
-        "Ignored Folders",
-        "Index",
-        "About",
+    let page_names = vec![
+        "General".to_string(),
+        "Indexed Folders".to_string(),
+        "Ignored Folders".to_string(),
+        "Index".to_string(),
+        "About".to_string(),
     ];
 
     let general_page = general::build(state);
@@ -58,17 +58,18 @@ pub fn show_settings(parent: &impl IsA<Window>, state: &Rc<RefCell<WindowState>>
 
     for name in &page_names {
         let row = ListBoxRow::builder()
-            .child(&Label::builder().label(*name).build())
+            .child(&Label::builder().label(name.clone()).build())
             .build();
         sidebar.append(&row);
     }
 
     // Connect sidebar selection to page switching
     let pages_clone = pages.clone();
+    let page_names_clone = page_names.clone();
     sidebar.connect_row_selected(move |_listbox, row| {
         if let Some(row) = row {
             let index = row.index() as usize;
-            if let Some(name) = page_names.get(index) {
+            if let Some(name) = page_names_clone.get(index) {
                 pages_clone.set_visible_child_name(name);
             }
         }
