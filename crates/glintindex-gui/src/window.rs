@@ -155,14 +155,20 @@ impl GlintIndexWindow {
             let window_clone = window.clone();
             let state_clone = state.clone();
             settings_btn.connect_clicked(move |_| {
-                let mut st = state_clone.borrow_mut();
-                if let Some(ref existing) = st.settings_window {
+                // Clone the window reference while borrowing state,
+                // then drop the borrow before calling close() to avoid
+                // a double-borrow panic when close-request fires.
+                let window_to_close = {
+                    let st = state_clone.borrow();
+                    st.settings_window.clone()
+                };
+
+                if let Some(existing) = window_to_close {
                     // Settings window is open — close it
+                    // The close-request handler will clear settings_window
                     existing.close();
-                    st.settings_window = None;
                 } else {
                     // Settings window is closed — open it
-                    drop(st);
                     ui::settings::show_settings(&window_clone, &state_clone);
                 }
             });

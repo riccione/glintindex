@@ -125,6 +125,17 @@ pub fn show_settings(parent: &impl IsA<Window>, state: &Rc<RefCell<WindowState>>
         gtk::glib::Propagation::Proceed
     });
 
+    // Add Esc key handler to close the window
+    let key_controller = gtk::EventControllerKey::new();
+    let settings_window_for_key = settings_window.clone();
+    key_controller.connect_key_pressed(move |_controller, key, _keycode, _modifiers| {
+        if key == gtk::gdk::Key::Escape {
+            settings_window_for_key.close();
+        }
+        gtk::glib::Propagation::Proceed
+    });
+    settings_window.add_controller(key_controller);
+
     // Store the window reference in state
     {
         let mut st = state.borrow_mut();
