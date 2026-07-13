@@ -3,7 +3,6 @@
 //! Wires together the state, messages, and view into a running
 //! Iced application using the function-based API.
 
-use glintindex_core::PreviewService;
 use iced::{Element, Task};
 use log::error;
 
@@ -123,7 +122,7 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
                 state.preview_error = None;
                 state.preview_search_query.clear();
 
-                let preview_service = PreviewService::with_default_config();
+                let preview_service = state.preview_service.clone();
                 let search_query = state.query.clone();
                 let path_clone = path.clone();
 
@@ -337,7 +336,7 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
             state.preview_error = None;
             state.preview_search_query.clear();
 
-            let preview_service = PreviewService::with_default_config();
+            let preview_service = state.preview_service.clone();
             let search_query = state.query.clone();
             let path_clone = path.clone();
 
@@ -374,7 +373,7 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
             // Re-highlight the preview with new search query if we have a preview
             if let Some(preview) = &state.current_preview {
                 let path = preview.path.clone();
-                let preview_service = PreviewService::with_default_config();
+                let preview_service = state.preview_service.clone();
                 let search_query = state.preview_search_query.clone();
 
                 Task::perform(

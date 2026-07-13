@@ -16,7 +16,8 @@
 use iced::widget::text_editor;
 
 use glintindex_core::{
-    ApplicationService, ApplicationStatistics, IndexedFolder, PreviewOutput, Progress, SearchResult,
+    ApplicationService, ApplicationStatistics, IndexedFolder, PreviewOutput, PreviewService,
+    Progress, SearchResult,
 };
 
 use crate::message::SettingsPage;
@@ -63,6 +64,8 @@ pub struct AppState {
     pub preview_error: Option<String>,
     /// The search query currently highlighted in the preview.
     pub preview_search_query: String,
+    /// Reusable preview service (avoids reloading syntax definitions per click).
+    pub preview_service: PreviewService,
 
     // ── Settings ────────────────────────────────────────────────
     /// Whether the settings window is currently visible.
@@ -112,6 +115,7 @@ impl AppState {
             preview_loading: false,
             preview_error: None,
             preview_search_query: String::new(),
+            preview_service: PreviewService::with_default_config(),
             settings_open: false,
             settings_page: SettingsPage::General,
             indexed_folders,
