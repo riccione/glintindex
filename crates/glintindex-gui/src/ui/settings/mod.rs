@@ -44,6 +44,14 @@ pub fn show_settings(parent: &impl IsA<Window>, state: &Rc<RefCell<WindowState>>
         "about".to_string(),
     ];
 
+    let display_names = [
+        "General",
+        "Indexed Folders",
+        "Ignored Folders",
+        "Index",
+        "About",
+    ];
+
     let general_page = general::build(state);
     let indexed_folders_page = indexed_folders::build(state, &settings_window);
     let ignored_folders_page = ignored_folders::build(state);
@@ -56,9 +64,10 @@ pub fn show_settings(parent: &impl IsA<Window>, state: &Rc<RefCell<WindowState>>
     pages.add_named(&index_page_widget, Some("index"));
     pages.add_named(&about_page, Some("about"));
 
-    for name in &page_names {
+    for (i, _name) in page_names.iter().enumerate() {
+        let display = display_names[i];
         let row = ListBoxRow::builder()
-            .child(&Label::builder().label(name.clone()).build())
+            .child(&Label::builder().label(display).build())
             .build();
         sidebar.append(&row);
     }
