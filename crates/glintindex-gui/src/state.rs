@@ -158,6 +158,9 @@ impl AppState {
     /// that supports native text selection and OS-native copy.
     /// Includes line numbers and metadata notices (truncation,
     /// encoding) as comments at the top of the content.
+    ///
+    /// Text is sanitized to strip characters that could trigger
+    /// `cosmic-text` panics on mixed bidirectional content.
     pub fn update_preview_content(&mut self, preview: &PreviewOutput) {
         let mut content = String::new();
 
@@ -176,7 +179,8 @@ impl AppState {
             content.push_str(&format!("{:>4} {}\n", line.line_number, line.text));
         }
 
-        self.preview_content = text_editor::Content::with_text(&content);
+        let sanitized = sanitize_for_text_editor(&content);
+        self.preview_content = text_editor::Content::with_text(&sanitized);
     }
 
     /// Returns the enabled folder count from the cached snapshot.
@@ -202,6 +206,51 @@ impl AppState {
             )
         }
     }
+}
+
+/// Strips characters that could cause `cosmic-text` to panic.
+///
+/// `cosmic-text` 0.15.0 panics when `text_editor` shapes text
+/// containing mixed bidirectional paragraphs (e.g., Arabic/Hebrew
+/// mixed with English on the same line). This function removes RTL
+/// characters that could trigger the assertion at `shape.rs:960`.
+///
+/// This is acceptable for a code preview tool where RTL characters
+/// in source code are rare and not semantically meaningful.
+fn sanitize_for_text_editor(text: &str) -> String {
+    text.chars().filter(|c| !is_rtl_char(*c)).collect()
+}
+
+/// Returns `true` if the character is a right-to-left character
+/// that could cause mixed-direction paragraph assertions.
+fn is_rtl_char(c: char) -> bool {
+    matches!(c,
+        // Arabic
+        '\u{0600}'..='\u{06FF}' |
+        '\u{0750}'..='\u{077F}' |
+        '\u{08A0}'..='\u{08FF}' |
+        '\u{FB50}'..='\u{FDFF}' |
+        '\u{FE70}'..='\u{FEFF}' |
+        // Hebrew
+        '\u{0590}'..='\u{05FF}' |
+        '\u{FB1D}'..='\u{FB4F}' |
+        // Syriac
+        '\u{0700}'..='\u{074F}' |
+        // Thaana
+        '\u{0780}'..='\u{07BF}' |
+        // N'Ko
+        '\u{07C0}'..='\u{07FF}' |
+        // Samaritan
+        '\u{0800}'..='\u{083F}' |
+        // Mandaic
+        '\u{0840}'..='\u{085F}' |
+        // General punctuation RTL
+        '\u{200F}' |
+        // Bidirectional embedding/override
+        '\u{202A}'..='\u{202E}' |
+        // Bidirectional isolate
+        '\u{2066}'..='\u{2069}'
+    )
 }
 
 #[cfg(test)]
@@ -337,5 +386,46 @@ mod tests {
     fn recent_searches_initially_empty() {
         let state = create_test_state();
         assert!(state.recent_searches().is_empty());
+    }
+
+    #[test]
+    fn sanitize_strips_arabic() {
+        let input = "hello \u{0627}\u{0644}\u{0639} world";
+        let result = sanitize_for_text_editor(input);
+        assert_eq!(result, "hello  world");
+    }
+
+    #[test]
+    fn sanitize_strips_hebrew() {
+        let input = "hello \u{05D0}\u{05D1}\u{05D2} world";
+        let result = sanitize_for_text_editor(input);
+        assert_eq!(result, "hello  world");
+    }
+
+    #[test]
+    fn sanitize_strips_rtl_marks() {
+        let input = "hello \u{200F}\u{202B}world";
+        let result = sanitize_for_text_editor(input);
+        assert_eq!(result, "hello world");
+    }
+
+    #[test]
+    fn sanitize_preserves_latin() {
+        let input = "fn main() { println!(\"hello\"); }";
+        let result = sanitize_for_text_editor(input);
+        assert_eq!(result, input);
+    }
+
+    #[test]
+    fn sanitize_empty_string() {
+        let result = sanitize_for_text_editor("");
+        assert_eq!(result, "");
+    }
+
+    #[test]
+    fn sanitize_mixed_content() {
+        let input = "line1\n\u{0627}\u{0644}\u{0639}line2\nline3";
+        let result = sanitize_for_text_editor(input);
+        assert_eq!(result, "line1\nline2\nline3");
     }
 }
