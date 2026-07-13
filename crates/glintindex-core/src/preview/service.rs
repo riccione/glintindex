@@ -65,11 +65,23 @@ pub struct PreviewLine {
 /// The service is thread-safe and can be shared across components.
 /// It handles file loading, syntax detection, encoding detection,
 /// and search match highlighting.
+///
+/// Implements `Clone` cheaply via `Arc` — all internal state is shared.
 pub struct PreviewService {
     config: PreviewConfig,
     syntax_highlighter: Arc<Mutex<SyntaxHighlighter>>,
     /// Cache for the last loaded file to avoid redundant reloads.
     cache: Arc<Mutex<Option<(PathBuf, PreviewOutput)>>>,
+}
+
+impl Clone for PreviewService {
+    fn clone(&self) -> Self {
+        Self {
+            config: self.config.clone(),
+            syntax_highlighter: Arc::clone(&self.syntax_highlighter),
+            cache: Arc::clone(&self.cache),
+        }
+    }
 }
 
 impl PreviewService {

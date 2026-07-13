@@ -3,9 +3,21 @@
 //! Holds both the business logic service and the UI-specific state.
 //! The GUI never accesses core internals directly — all interaction
 //! goes through `ApplicationService`.
+//!
+//! # Preview Content
+//!
+//! The preview panel uses `text_editor::Content` (stored as
+//! `preview_content`) instead of `text()` widgets because Iced's
+//! `text()` does not support text selection. Only `text_editor()`
+//! provides native text selection and OS-native copy shortcuts.
+//! The `Content` must be stored in application state because
+//! `text_editor()` borrows it by reference.
+
+use iced::widget::text_editor;
 
 use glintindex_core::{
-    ApplicationService, ApplicationStatistics, IndexedFolder, PreviewOutput, Progress, SearchResult,
+    ApplicationService, ApplicationStatistics, IndexedFolder, PreviewOutput, PreviewService,
+    Progress, SearchResult,
 };
 
 use crate::message::SettingsPage;
@@ -52,6 +64,8 @@ pub struct AppState {
     pub preview_error: Option<String>,
     /// The search query currently highlighted in the preview.
     pub preview_search_query: String,
+    /// Reusable preview service (avoids reloading syntax definitions per click).
+    pub preview_service: PreviewService,
 
     // ── Settings ────────────────────────────────────────────────
     /// Whether the settings window is currently visible.
@@ -70,6 +84,12 @@ pub struct AppState {
     pub operation_in_progress: bool,
     /// Current progress information during indexing/rebuild operations.
     pub current_progress: Option<Progress>,
+    /// Text editor content for the preview pane.
+    ///
+    /// Stored here because `text_editor()` borrows `Content` by
+    /// reference, so it must outlive the view function. Updated
+    /// whenever a new preview is loaded.
+    pub preview_content: text_editor::Content,
 }
 
 impl AppState {
@@ -95,6 +115,7 @@ impl AppState {
             preview_loading: false,
             preview_error: None,
             preview_search_query: String::new(),
+            preview_service: PreviewService::with_default_config(),
             settings_open: false,
             settings_page: SettingsPage::General,
             indexed_folders,
@@ -103,6 +124,7 @@ impl AppState {
             settings_status: String::new(),
             operation_in_progress: false,
             current_progress: None,
+            preview_content: text_editor::Content::default(),
         }
     }
 
@@ -130,6 +152,37 @@ impl AppState {
         self.statistics = self.service.statistics().ok();
     }
 
+    /// Updates the preview content for text selection support.
+    ///
+    /// Converts a [`PreviewOutput`] into a `text_editor::Content`
+    /// that supports native text selection and OS-native copy.
+    /// Includes line numbers and metadata notices (truncation,
+    /// encoding) as comments at the top of the content.
+    ///
+    /// Text is sanitized to strip characters that could trigger
+    /// `cosmic-text` panics on mixed bidirectional content.
+    pub fn update_preview_content(&mut self, preview: &PreviewOutput) {
+        let mut content = String::new();
+
+        if preview.truncated {
+            content.push_str(&format!(
+                "// File truncated (showing first {} bytes)\n",
+                preview.lines.len() * 50
+            ));
+        }
+
+        if preview.encoding != glintindex_core::Encoding::Utf8 {
+            content.push_str(&format!("// Encoding: {:?}\n", preview.encoding));
+        }
+
+        for line in &preview.lines {
+            content.push_str(&format!("{:>4} {}\n", line.line_number, line.text));
+        }
+
+        let sanitized = sanitize_for_text_editor(&content);
+        self.preview_content = text_editor::Content::with_text(&sanitized);
+    }
+
     /// Returns the enabled folder count from the cached snapshot.
     pub fn enabled_folder_count(&self) -> usize {
         self.indexed_folders.iter().filter(|f| f.enabled).count()
@@ -153,6 +206,51 @@ impl AppState {
             )
         }
     }
+}
+
+/// Strips characters that could cause `cosmic-text` to panic.
+///
+/// `cosmic-text` 0.15.0 panics when `text_editor` shapes text
+/// containing mixed bidirectional paragraphs (e.g., Arabic/Hebrew
+/// mixed with English on the same line). This function removes RTL
+/// characters that could trigger the assertion at `shape.rs:960`.
+///
+/// This is acceptable for a code preview tool where RTL characters
+/// in source code are rare and not semantically meaningful.
+fn sanitize_for_text_editor(text: &str) -> String {
+    text.chars().filter(|c| !is_rtl_char(*c)).collect()
+}
+
+/// Returns `true` if the character is a right-to-left character
+/// that could cause mixed-direction paragraph assertions.
+fn is_rtl_char(c: char) -> bool {
+    matches!(c,
+        // Arabic
+        '\u{0600}'..='\u{06FF}' |
+        '\u{0750}'..='\u{077F}' |
+        '\u{08A0}'..='\u{08FF}' |
+        '\u{FB50}'..='\u{FDFF}' |
+        '\u{FE70}'..='\u{FEFF}' |
+        // Hebrew
+        '\u{0590}'..='\u{05FF}' |
+        '\u{FB1D}'..='\u{FB4F}' |
+        // Syriac
+        '\u{0700}'..='\u{074F}' |
+        // Thaana
+        '\u{0780}'..='\u{07BF}' |
+        // N'Ko
+        '\u{07C0}'..='\u{07FF}' |
+        // Samaritan
+        '\u{0800}'..='\u{083F}' |
+        // Mandaic
+        '\u{0840}'..='\u{085F}' |
+        // General punctuation RTL
+        '\u{200F}' |
+        // Bidirectional embedding/override
+        '\u{202A}'..='\u{202E}' |
+        // Bidirectional isolate
+        '\u{2066}'..='\u{2069}'
+    )
 }
 
 #[cfg(test)]
@@ -288,5 +386,46 @@ mod tests {
     fn recent_searches_initially_empty() {
         let state = create_test_state();
         assert!(state.recent_searches().is_empty());
+    }
+
+    #[test]
+    fn sanitize_strips_arabic() {
+        let input = "hello \u{0627}\u{0644}\u{0639} world";
+        let result = sanitize_for_text_editor(input);
+        assert_eq!(result, "hello  world");
+    }
+
+    #[test]
+    fn sanitize_strips_hebrew() {
+        let input = "hello \u{05D0}\u{05D1}\u{05D2} world";
+        let result = sanitize_for_text_editor(input);
+        assert_eq!(result, "hello  world");
+    }
+
+    #[test]
+    fn sanitize_strips_rtl_marks() {
+        let input = "hello \u{200F}\u{202B}world";
+        let result = sanitize_for_text_editor(input);
+        assert_eq!(result, "hello world");
+    }
+
+    #[test]
+    fn sanitize_preserves_latin() {
+        let input = "fn main() { println!(\"hello\"); }";
+        let result = sanitize_for_text_editor(input);
+        assert_eq!(result, input);
+    }
+
+    #[test]
+    fn sanitize_empty_string() {
+        let result = sanitize_for_text_editor("");
+        assert_eq!(result, "");
+    }
+
+    #[test]
+    fn sanitize_mixed_content() {
+        let input = "line1\n\u{0627}\u{0644}\u{0639}line2\nline3";
+        let result = sanitize_for_text_editor(input);
+        assert_eq!(result, "line1\nline2\nline3");
     }
 }
