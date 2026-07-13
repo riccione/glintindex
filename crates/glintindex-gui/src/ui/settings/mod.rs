@@ -36,7 +36,6 @@ pub fn show_settings(parent: &impl IsA<Window>, state: &Rc<RefCell<WindowState>>
         .title("Settings")
         .default_width(700)
         .default_height(500)
-        .modal(true)
         .transient_for(parent)
         .build();
 
