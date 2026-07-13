@@ -5,6 +5,7 @@
 //! application state to change.
 
 use glintindex_core::{PreviewOutput, SearchResult};
+use iced::widget::text_editor;
 
 /// The active page within the Settings window.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -113,6 +114,9 @@ pub enum Message {
     PreviewFailed(String),
     /// Search highlights were updated in the preview.
     SearchHighlightsUpdated(String),
+    /// An action from the preview text editor (selection, click, etc.).
+    /// Editing actions are filtered out to keep the preview read-only.
+    PreviewAction(text_editor::Action),
 
     // ── Background Indexing ─────────────────────────────────────
     /// Request to start indexing all enabled folders in background.

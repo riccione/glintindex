@@ -386,6 +386,16 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
             }
         }
 
+        Message::PreviewAction(action) => {
+            // Accept selection/click/scroll actions, reject all editing actions.
+            // This makes the preview read-only while allowing text selection.
+            match &action {
+                iced::widget::text_editor::Action::Edit(_) => {}
+                _ => state.preview_content.perform(action),
+            }
+            Task::none()
+        }
+
         // ── Settings Navigation ─────────────────────────────────
         Message::OpenSettings => {
             state.settings_open = true;

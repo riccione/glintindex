@@ -135,13 +135,14 @@ fn syntax_language(path: &std::path::Path) -> String {
 
 /// Creates the preview content using `text_editor` with syntax highlighting.
 ///
-/// The `text_editor` is in read-only mode (no `on_action` callback),
-/// which means editing is disabled but text selection and copying
-/// remain functional.
+/// The `text_editor` uses `on_action` to receive events, but the
+/// update handler filters out editing actions — keeping the preview
+/// read-only while allowing text selection and copying.
 fn preview_content<'a>(preview: &'a PreviewOutput, state: &'a AppState) -> Element<'a, Message> {
     let extension = syntax_language(&preview.path);
 
     let editor = text_editor(&state.preview_content)
+        .on_action(Message::PreviewAction)
         .highlight(&extension, iced::highlighter::Theme::InspiredGitHub)
         .height(Length::Fill)
         .font(iced::Font::MONOSPACE)
