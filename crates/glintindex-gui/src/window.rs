@@ -128,12 +128,35 @@ impl GlintIndexWindow {
             .build();
 
         // Paned split view
+        // Calculate initial position from config ratio and window width
+        let initial_width = 1000; // default_width
+        let initial_ratio = {
+            let st = state.borrow();
+            st.service.config().main_split_ratio_f32()
+        };
+        let initial_position = (initial_width as f32 * initial_ratio) as i32;
+
         let paned = Paned::builder()
             .orientation(Orientation::Horizontal)
             .start_child(&results_scroll)
             .end_child(&preview_scroll)
-            .position(350)
+            .position(initial_position)
             .build();
+
+        // Save split ratio when divider is dragged
+        {
+            let state_clone = state.clone();
+            paned.connect_position_notify(move |paned| {
+                let position = paned.position();
+                let total = paned.width() as f32;
+                if total > 0.0 {
+                    let ratio = (position as f32 / total).clamp(0.15, 0.85);
+                    let rounded = (ratio * 100.0).round() / 100.0;
+                    let mut st = state_clone.borrow_mut();
+                    let _ = st.service.set_main_split_ratio(rounded);
+                }
+            });
+        }
 
         // Search bar + settings button
         let (header, settings_btn) = ui::search_bar::build(&state, &results_listbox);

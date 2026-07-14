@@ -656,6 +656,21 @@ impl ApplicationService {
         self.save_config()?;
         Ok(())
     }
+
+    /// Updates the main split ratio and persists the change.
+    ///
+    /// The value is clamped to [0.15, 0.85] and converted to a
+    /// percentage (0–100) for storage.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the configuration cannot be saved.
+    pub fn set_main_split_ratio(&mut self, ratio: f32) -> Result<()> {
+        let clamped = ratio.clamp(0.15, 0.85);
+        self.config.main_split_ratio = (clamped * 100.0).round() as u32;
+        self.save_config()?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
