@@ -29,12 +29,17 @@ impl ThemeManager {
     pub fn new(theme: Theme) -> Self {
         let provider = CssProvider::new();
 
-        // Register the provider once with the GTK Display
-        gtk::style_context_add_provider_for_display(
-            &gtk::gdk::Display::default().expect("Could not connect to a display"),
-            &provider,
-            gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
-        );
+        // Register the provider once with the GTK Display.
+        // If no display is available (e.g., headless), skip registration.
+        if let Some(display) = gtk::gdk::Display::default() {
+            gtk::style_context_add_provider_for_display(
+                &display,
+                &provider,
+                gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
+            );
+        } else {
+            log::warn!("No GDK display available; theme will not be applied.");
+        }
 
         let manager = Self { provider };
         manager.apply(theme);

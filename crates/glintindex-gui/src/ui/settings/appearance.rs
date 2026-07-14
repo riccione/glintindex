@@ -22,7 +22,7 @@ const FONT_SIZE_MAX: f64 = 32.0;
 const FONT_SIZE_STEP: f64 = 1.0;
 
 /// Builds the Appearance settings page.
-pub fn build(state: &Rc<RefCell<WindowState>>, window: &gtk::Window) -> GtkBox {
+pub fn build(state: &Rc<RefCell<WindowState>>) -> GtkBox {
     let content = GtkBox::new(Orientation::Vertical, 12);
     content.set_margin_top(16);
     content.set_margin_bottom(16);
@@ -129,13 +129,11 @@ pub fn build(state: &Rc<RefCell<WindowState>>, window: &gtk::Window) -> GtkBox {
     // Apply font size immediately on change
     {
         let state_clone = state.clone();
-        let window_clone = window.clone();
         font_size_spin.connect_value_changed(move |spin_button| {
             let new_size = spin_button.value() as u32;
             let mut st = state_clone.borrow_mut();
             let _ = st.service.set_font_size(new_size);
-            drop(st);
-            apply_font_size(&window_clone, new_size);
+            apply_font_size(&st.font_css_provider, new_size);
         });
     }
 
@@ -155,16 +153,10 @@ pub fn build(state: &Rc<RefCell<WindowState>>, window: &gtk::Window) -> GtkBox {
     content
 }
 
-/// Applies the given font size to the application window using GTK4 CSS.
-pub fn apply_font_size(window: &gtk::Window, font_size: u32) {
+/// Applies the given font size to the application using the stored CSS provider.
+///
+/// The provider is registered once at startup and reused for all font size changes.
+pub fn apply_font_size(font_css_provider: &gtk::CssProvider, font_size: u32) {
     let css = format!("* {{ font-size: {}pt; }}", font_size);
-
-    let provider = gtk::CssProvider::new();
-    provider.load_from_data(&css);
-
-    gtk::style_context_add_provider_for_display(
-        &gtk::prelude::WidgetExt::display(window),
-        &provider,
-        gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
-    );
+    font_css_provider.load_from_data(&css);
 }

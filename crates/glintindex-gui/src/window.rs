@@ -45,6 +45,8 @@ pub struct WindowState {
     pub last_job_progress: Option<glintindex_core::tasks::Progress>,
     /// Centralized theme manager for CSS loading and application.
     pub theme_manager: ThemeManager,
+    /// CSS provider for font size styling (registered once, reused).
+    pub font_css_provider: gtk::CssProvider,
 }
 
 impl GlintIndexWindow {
@@ -72,6 +74,7 @@ impl GlintIndexWindow {
             preview_buffer: None,
             last_job_progress: None,
             theme_manager: ThemeManager::new(theme),
+            font_css_provider: gtk::CssProvider::new(),
         }));
 
         // ── Build the widget tree ──────────────────────────────────
@@ -181,12 +184,21 @@ impl GlintIndexWindow {
             .child(&content)
             .build();
 
-        // Apply saved font size on startup
+        // Register font CSS provider once and apply saved font size on startup
         {
             let st = state.borrow();
             let font_size = st.service.config().clamped_font_size();
-            let window_ref: &gtk::Window = window.upcast_ref();
-            ui::settings::appearance::apply_font_size(window_ref, font_size);
+            let font_css = format!("* {{ font-size: {}pt; }}", font_size);
+            st.font_css_provider.load_from_data(&font_css);
+
+            // Register the font CSS provider with the display (once)
+            if let Some(display) = gtk::gdk::Display::default() {
+                gtk::style_context_add_provider_for_display(
+                    &display,
+                    &st.font_css_provider,
+                    gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
+                );
+            }
         }
 
         // Connect settings button to open/close settings window (toggle)
