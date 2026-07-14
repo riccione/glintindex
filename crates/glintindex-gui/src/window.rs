@@ -164,9 +164,10 @@ impl GlintIndexWindow {
                 };
 
                 if let Some(existing) = window_to_close {
-                    // Settings window is open — close it
-                    // The close-request handler will clear settings_window
-                    existing.close();
+                    // Settings window is open — hide it and clear reference
+                    existing.set_visible(false);
+                    let mut st = state_clone.borrow_mut();
+                    st.settings_window = None;
                 } else {
                     // Settings window is closed — open it
                     ui::settings::show_settings(&window_clone, &state_clone);
