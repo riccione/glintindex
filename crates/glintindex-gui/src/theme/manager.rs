@@ -2,6 +2,10 @@
 //!
 //! Centralizes all CSS loading and application logic.
 //! No other module should load CSS directly.
+//!
+//! The ThemeManager owns a single `CssProvider` for the entire
+//! application lifetime. When the theme changes, CSS is reloaded
+//! into the existing provider — no additional providers are created.
 
 use gtk::CssProvider;
 
@@ -12,23 +16,32 @@ const DEFAULT_CSS: &str = include_str!("../../resources/themes/light.css");
 
 /// Manages theme loading, application, and switching.
 ///
-/// The ThemeManager loads CSS files from the resources directory and
-/// applies them to the GTK application. It handles fallback gracefully
-/// if CSS files are missing or contain errors.
+/// The ThemeManager creates one `CssProvider` at startup and registers
+/// it with the GTK Display. Theme changes reload CSS into the same
+/// provider, avoiding provider stacking.
 pub struct ThemeManager {
     provider: CssProvider,
 }
 
 impl ThemeManager {
-    /// Creates a new ThemeManager and applies the given theme.
+    /// Creates a new ThemeManager, registers the CSS provider, and
+    /// applies the given theme.
     pub fn new(theme: Theme) -> Self {
         let provider = CssProvider::new();
+
+        // Register the provider once with the GTK Display
+        gtk::style_context_add_provider_for_display(
+            &gtk::gdk::Display::default().expect("Could not connect to a display"),
+            &provider,
+            gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
+        );
+
         let manager = Self { provider };
         manager.apply(theme);
         manager
     }
 
-    /// Applies the given theme to the application.
+    /// Reloads CSS for the given theme into the existing provider.
     ///
     /// Loads CSS from the resources directory. Falls back to the
     /// embedded default CSS if the file cannot be loaded.
@@ -37,14 +50,25 @@ impl ThemeManager {
             Theme::Light => Self::load_css("light.css"),
             Theme::Dark => Self::load_css("dark.css"),
             Theme::System => {
-                // For System theme, try to detect the system preference.
-                // GTK4 provides this via the settings manager, but for
-                // simplicity we fall back to the light theme.
-                Self::load_css("light.css")
+                // For System theme, detect the OS preference and
+                // load the corresponding stylesheet.
+                if Self::is_dark_mode() {
+                    Self::load_css("dark.css")
+                } else {
+                    Self::load_css("light.css")
+                }
             }
         };
 
-        self.apply_css(&css_content);
+        // Reload CSS into the existing provider (no new provider created)
+        self.provider.load_from_data(&css_content);
+    }
+
+    /// Returns `true` if the operating system prefers dark mode.
+    fn is_dark_mode() -> bool {
+        gtk::Settings::default()
+            .map(|s| s.is_gtk_application_prefer_dark_theme())
+            .unwrap_or(false)
     }
 
     /// Loads CSS content from the themes directory.
@@ -69,16 +93,5 @@ impl ThemeManager {
                 DEFAULT_CSS.to_string()
             }
         }
-    }
-
-    /// Applies CSS content to the application.
-    fn apply_css(&self, css_content: &str) {
-        self.provider.load_from_data(css_content);
-
-        gtk::style_context_add_provider_for_display(
-            &gtk::gdk::Display::default().expect("Could not connect to a display"),
-            &self.provider,
-            gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
-        );
     }
 }

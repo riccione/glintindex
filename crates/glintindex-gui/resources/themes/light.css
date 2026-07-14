@@ -2,23 +2,24 @@
 
 /* Application window */
 window {
-    background-color: @theme_bg_color;
+    background-color: #ffffff;
 }
 
 /* Search entry */
 searchentry {
-    background-color: @theme_base_color;
+    background-color: #f5f5f5;
     border-radius: 6px;
     padding: 4px 8px;
+    border: 1px solid #d0d0d0;
 }
 
 searchentry:focus {
-    border-color: @theme_selected_bg_color;
+    border-color: #3584e4;
 }
 
 /* Search results list */
 list {
-    background-color: @theme_base_color;
+    background-color: #ffffff;
 }
 
 list row {
@@ -26,13 +27,13 @@ list row {
 }
 
 list row:selected {
-    background-color: @theme_selected_bg_color;
-    color: @theme_selected_fg_color;
+    background-color: #3584e4;
+    color: #ffffff;
 }
 
 /* Preview pane */
 textview {
-    background-color: @theme_base_color;
+    background-color: #f8f8f8;
 }
 
 textview textview text {
@@ -59,14 +60,14 @@ button {
 
 /* Status bar */
 statusbar {
-    background-color: @theme_bg_color;
-    border-top: 1px solid @borders;
+    background-color: #f0f0f0;
+    border-top: 1px solid #d0d0d0;
     padding: 4px 8px;
 }
 
 /* Split panes */
 paned > divider {
-    background-color: @borders;
+    background-color: #d0d0d0;
 }
 
 /* Scrollbars */
@@ -75,7 +76,7 @@ scrollbar {
 }
 
 scrollbar slider {
-    background-color: @theme_fg_color;
+    background-color: #a0a0a0;
     border-radius: 4px;
     min-width: 6px;
     min-height: 6px;
@@ -83,10 +84,10 @@ scrollbar slider {
 
 /* Labels */
 dim-label {
-    color: mix(@theme_fg_color, @theme_bg_color, 0.4);
+    color: #666666;
 }
 
 caption {
     font-size: 11pt;
-    color: mix(@theme_fg_color, @theme_bg_color, 0.4);
+    color: #666666;
 }
