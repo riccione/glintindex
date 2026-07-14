@@ -632,6 +632,19 @@ impl ApplicationService {
     pub fn recent_searches(&self) -> &[String] {
         self.config.recent_searches()
     }
+
+    /// Updates the application font size and persists the change.
+    ///
+    /// The value is clamped to the valid range (8–32) before saving.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the configuration cannot be saved.
+    pub fn set_font_size(&mut self, size: u32) -> Result<()> {
+        self.config.font_size = size.clamp(8, 32);
+        self.save_config()?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]

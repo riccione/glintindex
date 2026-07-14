@@ -36,6 +36,17 @@ pub struct AppConfig {
     /// Recent search queries, newest first.
     #[serde(default)]
     pub recent_searches: Vec<String>,
+    /// Application font size in pixels.
+    ///
+    /// Controls the base font size for all UI elements.
+    /// Valid range: 8–32. Default: 12.
+    #[serde(default = "default_font_size")]
+    pub font_size: u32,
+}
+
+/// Returns the default font size for deserialization.
+fn default_font_size() -> u32 {
+    12
 }
 
 impl Default for AppConfig {
@@ -47,6 +58,7 @@ impl Default for AppConfig {
             theme: Theme::default(),
             max_preview_size: defaults::default_max_preview_size(),
             recent_searches: Vec::new(),
+            font_size: default_font_size(),
         }
     }
 }
@@ -81,6 +93,11 @@ impl AppConfig {
     pub fn recent_searches(&self) -> &[String] {
         &self.recent_searches
     }
+
+    /// Returns a clamped font size within the valid range (8–32).
+    pub fn clamped_font_size(&self) -> u32 {
+        self.font_size.clamp(8, 32)
+    }
 }
 
 #[cfg(test)]
@@ -95,6 +112,7 @@ mod tests {
         assert_eq!(config.max_preview_size, 200);
         assert_eq!(config.theme, Theme::System);
         assert!(config.recent_searches.is_empty());
+        assert_eq!(config.font_size, 12);
     }
 
     #[test]
