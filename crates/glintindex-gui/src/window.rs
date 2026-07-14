@@ -40,6 +40,8 @@ pub struct WindowState {
     pub settings_window: Option<Window>,
     /// Reference to the preview TextBuffer for updating content.
     pub preview_buffer: Option<TextBuffer>,
+    /// Progress from the most recent completed background job.
+    pub last_job_progress: Option<glintindex_core::tasks::Progress>,
 }
 
 impl GlintIndexWindow {
@@ -64,6 +66,7 @@ impl GlintIndexWindow {
             statistics,
             settings_window: None,
             preview_buffer: None,
+            last_job_progress: None,
         }));
 
         // ── Build the widget tree ──────────────────────────────────

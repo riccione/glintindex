@@ -33,8 +33,12 @@ pub struct Progress {
     /// `None` when the total is not yet determined (e.g., during directory
     /// traversal before all files are counted).
     pub total_files: Option<u64>,
-    /// Number of files successfully indexed.
+    /// Number of newly indexed files (no prior metadata).
     pub files_indexed: u64,
+    /// Number of files re-indexed because content changed.
+    pub files_reindexed: u64,
+    /// Number of files skipped because unchanged (metadata matches).
+    pub files_unchanged: u64,
     /// Number of files skipped (unsupported, binary, etc.).
     pub files_skipped: u64,
     /// Number of files that failed to parse.
@@ -93,12 +97,33 @@ impl Progress {
             files_processed: stats.files_discovered,
             total_files: None,
             files_indexed: stats.files_indexed,
+            files_reindexed: stats.files_reindexed,
+            files_unchanged: stats.files_unchanged,
             files_skipped: stats.files_skipped,
             files_failed: stats.files_failed,
             parser_errors: stats.parser_errors,
             parser_panics: stats.parser_panics,
             current_file: None,
         }
+    }
+}
+
+impl std::fmt::Display for Progress {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "Indexing completed\n")?;
+        writeln!(f, "Files indexed:    {}", self.files_indexed)?;
+        writeln!(f, "Files re-indexed: {}", self.files_reindexed)?;
+        writeln!(f, "Files skipped:    {}", self.files_unchanged)?;
+        if self.files_failed > 0 {
+            writeln!(f, "Files failed:     {}", self.files_failed)?;
+        }
+        if self.parser_errors > 0 {
+            writeln!(f, "Parser errors:    {}", self.parser_errors)?;
+        }
+        if self.parser_panics > 0 {
+            writeln!(f, "Parser panics:    {}", self.parser_panics)?;
+        }
+        Ok(())
     }
 }
 
@@ -113,6 +138,8 @@ mod tests {
         assert_eq!(progress.files_processed, 0);
         assert!(progress.total_files.is_none());
         assert_eq!(progress.files_indexed, 0);
+        assert_eq!(progress.files_reindexed, 0);
+        assert_eq!(progress.files_unchanged, 0);
         assert_eq!(progress.files_skipped, 0);
         assert_eq!(progress.files_failed, 0);
         assert_eq!(progress.parser_errors, 0);
@@ -162,6 +189,8 @@ mod tests {
         let mut stats = ScannerStatistics::new();
         stats.files_discovered = 50;
         stats.files_indexed = 40;
+        stats.files_reindexed = 3;
+        stats.files_unchanged = 2;
         stats.files_skipped = 5;
         stats.files_failed = 5;
         stats.parser_errors = 3;
@@ -171,6 +200,8 @@ mod tests {
         assert_eq!(progress.status_message, "Indexing complete");
         assert_eq!(progress.files_processed, 50);
         assert_eq!(progress.files_indexed, 40);
+        assert_eq!(progress.files_reindexed, 3);
+        assert_eq!(progress.files_unchanged, 2);
         assert_eq!(progress.files_skipped, 5);
         assert_eq!(progress.files_failed, 5);
         assert_eq!(progress.parser_errors, 3);
@@ -184,5 +215,21 @@ mod tests {
             .with_current_file("test.txt");
         let cloned = progress.clone();
         assert_eq!(progress, cloned);
+    }
+
+    #[test]
+    fn progress_display() {
+        let mut stats = ScannerStatistics::new();
+        stats.files_indexed = 116;
+        stats.files_reindexed = 8;
+        stats.files_unchanged = 8;
+        stats.parser_errors = 4;
+
+        let progress = Progress::from_statistics(&stats, "Completed");
+        let output = progress.to_string();
+        assert!(output.contains("Files indexed:    116"));
+        assert!(output.contains("Files re-indexed: 8"));
+        assert!(output.contains("Files skipped:    8"));
+        assert!(output.contains("Parser errors:    4"));
     }
 }
