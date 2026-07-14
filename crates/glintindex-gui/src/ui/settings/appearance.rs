@@ -53,7 +53,7 @@ pub fn build(state: &Rc<RefCell<WindowState>>, window: &gtk::Window) -> GtkBox {
     let radio_dark = CheckButton::with_label("Dark");
 
     // Group radio buttons for mutual exclusion
-    radio_system.set_group(Some(&radio_system));
+    // radio_system is the group leader (no set_group needed)
     radio_light.set_group(Some(&radio_system));
     radio_dark.set_group(Some(&radio_system));
 
