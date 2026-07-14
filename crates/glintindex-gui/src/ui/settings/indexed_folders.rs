@@ -74,7 +74,7 @@ pub fn build(state: &Rc<RefCell<WindowState>>, parent: &Window) -> GtkBox {
     let listbox_clone = listbox.clone();
     gtk::glib::idle_add_local(move || {
         refresh_folder_list(&state_clone, &listbox_clone);
-        gtk::glib::ControlFlow::Continue
+        gtk::glib::ControlFlow::Break
     });
 
     content.append(&listbox);
@@ -90,7 +90,7 @@ pub fn build(state: &Rc<RefCell<WindowState>>, parent: &Window) -> GtkBox {
     gtk::glib::idle_add_local(move || {
         let st = state_clone.borrow();
         status_clone.set_text(&st.status);
-        gtk::glib::ControlFlow::Continue
+        gtk::glib::ControlFlow::Break
     });
 
     content.append(&status_label);

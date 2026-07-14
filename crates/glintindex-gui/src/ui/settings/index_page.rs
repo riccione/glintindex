@@ -75,7 +75,7 @@ pub fn build(state: &Rc<RefCell<WindowState>>) -> GtkBox {
     let progress_clone = progress_bar.clone();
     gtk::glib::idle_add_local(move || {
         refresh_stats(&state_clone, &status_clone, &stats_clone, &progress_clone);
-        gtk::glib::ControlFlow::Continue
+        gtk::glib::ControlFlow::Break
     });
 
     // Connect Index All button
@@ -104,6 +104,7 @@ pub fn build(state: &Rc<RefCell<WindowState>>) -> GtkBox {
         }
         drop(st);
         refresh_stats(&state_clone, &status_clone, &stats_clone, &progress_clone);
+        schedule_progress_polling(&state_clone, &status_clone, &stats_clone, &progress_clone);
     });
 
     // Connect Rebuild button
@@ -132,6 +133,7 @@ pub fn build(state: &Rc<RefCell<WindowState>>) -> GtkBox {
         }
         drop(st);
         refresh_stats(&state_clone, &status_clone, &stats_clone, &progress_clone);
+        schedule_progress_polling(&state_clone, &status_clone, &stats_clone, &progress_clone);
     });
 
     // Connect Clear button
@@ -157,15 +159,31 @@ pub fn build(state: &Rc<RefCell<WindowState>>) -> GtkBox {
         refresh_stats(&state_clone, &status_clone, &stats_clone, &progress_clone);
     });
 
-    // Progress polling
+    content
+}
+
+/// Schedules a progress polling timer that runs while a job is active.
+///
+/// The timer fires every 200ms to poll background job progress.
+/// When the job finishes, the timer stops automatically.
+/// When a new job starts, a new timer is created.
+fn schedule_progress_polling(
+    state: &Rc<RefCell<WindowState>>,
+    status_label: &Label,
+    stats_box: &GtkBox,
+    progress_bar: &ProgressBar,
+) {
     let state_clone = state.clone();
     let status_clone = status_label.clone();
     let progress_clone = progress_bar.clone();
     let stats_clone = stats_box.clone();
+
     gtk::glib::timeout_add_local(std::time::Duration::from_millis(200), move || {
         let mut st = state_clone.borrow_mut();
         if !st.progress_active {
-            return gtk::glib::ControlFlow::Continue;
+            // Job is not active — stop polling
+            refresh_stats(&state_clone, &status_clone, &stats_clone, &progress_clone);
+            return gtk::glib::ControlFlow::Break;
         }
         if let Some(progress) = st.service.current_progress() {
             st.status = progress.status_message.clone();
@@ -189,13 +207,14 @@ pub fn build(state: &Rc<RefCell<WindowState>>) -> GtkBox {
             st.refresh_statistics();
             progress_clone.set_visible(false);
             progress_clone.set_fraction(0.0);
+            drop(st);
+            refresh_stats(&state_clone, &status_clone, &stats_clone, &progress_clone);
+            return gtk::glib::ControlFlow::Break;
         }
         drop(st);
         refresh_stats(&state_clone, &status_clone, &stats_clone, &progress_clone);
         gtk::glib::ControlFlow::Continue
     });
-
-    content
 }
 
 /// Refreshes the statistics display.

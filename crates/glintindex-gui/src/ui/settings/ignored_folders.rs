@@ -56,7 +56,7 @@ pub fn build(state: &Rc<RefCell<WindowState>>) -> GtkBox {
     let listbox_clone = listbox.clone();
     gtk::glib::idle_add_local(move || {
         refresh_ignored_list(&state_clone, &listbox_clone);
-        gtk::glib::ControlFlow::Continue
+        gtk::glib::ControlFlow::Break
     });
 
     let scrolled = ScrolledWindow::builder()
@@ -124,7 +124,7 @@ pub fn build(state: &Rc<RefCell<WindowState>>) -> GtkBox {
     gtk::glib::idle_add_local(move || {
         let st = state_clone.borrow();
         status_clone.set_text(&st.status);
-        gtk::glib::ControlFlow::Continue
+        gtk::glib::ControlFlow::Break
     });
 
     content.append(&status_label);
