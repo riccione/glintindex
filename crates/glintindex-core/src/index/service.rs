@@ -4,8 +4,8 @@ use std::sync::{Arc, Mutex};
 
 use tantivy::collector::TopDocs;
 use tantivy::directory::MmapDirectory;
-use tantivy::query::QueryParser;
-use tantivy::{Index, IndexReader, IndexWriter, ReloadPolicy};
+use tantivy::query::{BooleanQuery, FuzzyTermQuery, Occur, QueryParser};
+use tantivy::{Index, IndexReader, IndexWriter, Term, ReloadPolicy};
 
 use crate::error::{GlintIndexError, Result};
 use crate::metadata::{FileMetadata, Repository};
@@ -176,22 +176,39 @@ impl IndexService {
 
         let searcher = self.reader.searcher();
 
+        // Build the standard full-text query
         let text_fields = vec![self.fields.filename, self.fields.content];
         let query_parser = QueryParser::for_index(&self.index, text_fields);
 
-        let tantivy_query = query_parser
+        let standard_query = query_parser
             .parse_query(&query.query)
             .map_err(|e| GlintIndexError::Search(format!("failed to parse query: {e}")))?;
 
+        // Build prefix queries for tokens >= 3 characters.
+        // This enables searching by prefix (e.g., "serg" matches "Sergei").
+        // Prefix queries are combined with the standard query using BooleanQuery
+        // so exact matches naturally rank higher than prefix matches.
+        let prefix_query = self.build_prefix_query(&query.query);
+
+        // Combine standard and prefix queries
+        let combined_query: Box<dyn tantivy::query::Query> = if let Some(prefix_q) = prefix_query {
+            Box::new(BooleanQuery::new(vec![
+                (Occur::Should, standard_query),
+                (Occur::Should, prefix_q),
+            ]))
+        } else {
+            standard_query
+        };
+
         let collector = TopDocs::with_limit(DEFAULT_SEARCH_LIMIT).order_by_score();
-        let top_docs = searcher.search(&tantivy_query, &collector)?;
+        let top_docs = searcher.search(&*combined_query, &collector)?;
 
         let mut results = Vec::with_capacity(top_docs.len());
 
         for (score, doc_address) in top_docs {
             let doc: tantivy::TantivyDocument = searcher.doc(doc_address)?;
             let snippet = self
-                .generate_snippet(&doc, &tantivy_query)
+                .generate_snippet(&doc, &*combined_query)
                 .unwrap_or_default();
 
             if let Some(result) = tantivy_to_search_result(&doc, score, snippet, &self.fields) {
@@ -200,6 +217,50 @@ impl IndexService {
         }
 
         Ok(results)
+    }
+
+    /// Builds prefix queries for search tokens with length >= 3.
+    ///
+    /// For each token in the query that is at least 3 characters long
+    /// (after normalization), creates a prefix query using
+    /// `FuzzyTermQuery::new_prefix` with distance 0. This performs
+    /// an exact prefix match against the inverted index's FST.
+    ///
+    /// Tokens shorter than 3 characters only get exact-match queries
+    /// to avoid overly broad results.
+    fn build_prefix_query(&self, query: &str) -> Option<Box<dyn tantivy::query::Query>> {
+        let mut sub_queries: Vec<(Occur, Box<dyn tantivy::query::Query>)> = Vec::new();
+
+        // Extract terms from the query for prefix matching.
+        // Tokens shorter than 3 characters only get exact-match queries
+        // to avoid overly broad results. Tokens >= 3 characters also
+        // get prefix queries using FuzzyTermQuery::new_prefix with
+        // distance=0, which creates an exact prefix DFA that efficiently
+        // scans the inverted index's term dictionary.
+        for term_str in query.split_whitespace() {
+            let normalized = term_str.to_lowercase();
+            if normalized.len() < 3 {
+                continue; // Skip tokens shorter than 3 characters
+            }
+
+            // Create prefix queries for both filename and content fields
+            let filename_term = Term::from_field_text(self.fields.filename, &normalized);
+            let content_term = Term::from_field_text(self.fields.content, &normalized);
+
+            // FuzzyTermQuery with distance=0 and prefix=true creates an exact prefix DFA
+            // that efficiently scans the inverted index's term dictionary.
+            let filename_prefix = FuzzyTermQuery::new_prefix(filename_term, 0, false);
+            let content_prefix = FuzzyTermQuery::new_prefix(content_term, 0, false);
+
+            sub_queries.push((Occur::Should, Box::new(filename_prefix)));
+            sub_queries.push((Occur::Should, Box::new(content_prefix)));
+        }
+
+        if sub_queries.is_empty() {
+            None
+        } else {
+            Some(Box::new(BooleanQuery::new(sub_queries)))
+        }
     }
 
     fn generate_snippet(
@@ -496,5 +557,144 @@ mod tests {
         assert_eq!(results.len(), 1);
         assert!(!results[0].snippet.is_empty());
         assert!(results[0].snippet.contains("fox"));
+    }
+
+    // ── Prefix search tests ─────────────────────────────────────
+
+    #[test]
+    fn prefix_search_filename() {
+        let (service, _tmp) = temp_index_service();
+        let doc = sample_document("Sergei_Report.pdf", "Annual report");
+        service.add_document(&doc).unwrap();
+        service.commit().unwrap();
+
+        // Prefix query should match the filename
+        let results = service.search(&SearchQuery::new("serg")).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].document.filename(), "Sergei_Report.pdf");
+    }
+
+    #[test]
+    fn prefix_search_content() {
+        let (service, _tmp) = temp_index_service();
+        let doc = sample_document("report.txt", "Sergei filed the invoice");
+        service.add_document(&doc).unwrap();
+        service.commit().unwrap();
+
+        // Prefix query should match content
+        let results = service.search(&SearchQuery::new("serg")).unwrap();
+        assert_eq!(results.len(), 1);
+        assert!(results[0].document.content.contains("Sergei"));
+    }
+
+    #[test]
+    fn prefix_search_three_char_threshold() {
+        let (service, _tmp) = temp_index_service();
+        let doc = sample_document("Sergei.txt", "content");
+        service.add_document(&doc).unwrap();
+        service.commit().unwrap();
+
+        // 1-char: exact only (no prefix)
+        let results = service.search(&SearchQuery::new("s")).unwrap();
+        assert!(results.is_empty()); // "s" doesn't match "Sergei" exactly
+
+        // 2-char: exact only (no prefix)
+        let results = service.search(&SearchQuery::new("se")).unwrap();
+        assert!(results.is_empty()); // "se" doesn't match "Sergei" exactly
+
+        // 3-char: exact + prefix
+        let results = service.search(&SearchQuery::new("ser")).unwrap();
+        assert_eq!(results.len(), 1); // prefix matches "Sergei"
+    }
+
+    #[test]
+    fn prefix_search_exact_still_works() {
+        let (service, _tmp) = temp_index_service();
+        let doc = sample_document("readme.md", "Hello world from the readme");
+        service.add_document(&doc).unwrap();
+        service.commit().unwrap();
+
+        let results = service.search(&SearchQuery::new("readme")).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].document.filename(), "readme.md");
+    }
+
+    #[test]
+    fn prefix_search_case_insensitive() {
+        let (service, _tmp) = temp_index_service();
+        let doc = sample_document("Sergei.txt", "content");
+        service.add_document(&doc).unwrap();
+        service.commit().unwrap();
+
+        // Uppercase prefix should also match
+        let results = service.search(&SearchQuery::new("SERG")).unwrap();
+        assert_eq!(results.len(), 1);
+    }
+
+    #[test]
+    fn prefix_search_multi_word() {
+        let (service, _tmp) = temp_index_service();
+        let doc1 = sample_document("Sergei_Invoice.pdf", "Invoice details");
+        let doc2 = sample_document("report.txt", "Sergei's report");
+        service.add_document(&doc1).unwrap();
+        service.add_document(&doc2).unwrap();
+        service.commit().unwrap();
+
+        // Multi-word query: "ser inv" should match both
+        let results = service.search(&SearchQuery::new("ser inv")).unwrap();
+        assert!(!results.is_empty());
+    }
+
+    #[test]
+    fn prefix_search_no_matches() {
+        let (service, _tmp) = temp_index_service();
+        let doc = sample_document("test.txt", "hello");
+        service.add_document(&doc).unwrap();
+        service.commit().unwrap();
+
+        let results = service.search(&SearchQuery::new("xyz")).unwrap();
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn prefix_search_exact_ranks_above_prefix() {
+        let (service, _tmp) = temp_index_service();
+        let doc1 = sample_document("report.txt", "sergei invoice");
+        let doc2 = sample_document("Sergei.txt", "other content");
+        service.add_document(&doc1).unwrap();
+        service.add_document(&doc2).unwrap();
+        service.commit().unwrap();
+
+        // "sergei" should match both documents
+        let results = service.search(&SearchQuery::new("sergei")).unwrap();
+        assert_eq!(results.len(), 2);
+        // Both documents should be found (exact match on filename + prefix match on content)
+        let filenames: Vec<&str> = results.iter().map(|r| r.document.filename()).collect();
+        assert!(filenames.contains(&"report.txt"));
+        assert!(filenames.contains(&"Sergei.txt"));
+    }
+
+    #[test]
+    fn prefix_search_single_char_no_prefix() {
+        let (service, _tmp) = temp_index_service();
+        let doc = sample_document("test.txt", "hello");
+        service.add_document(&doc).unwrap();
+        service.commit().unwrap();
+
+        // Single char should only do exact search, not prefix
+        let results = service.search(&SearchQuery::new("h")).unwrap();
+        assert!(results.is_empty()); // "h" doesn't match "hello" exactly
+    }
+
+    #[test]
+    fn prefix_search_two_char_no_prefix() {
+        let (service, _tmp) = temp_index_service();
+        let doc = sample_document("test.txt", "hello world");
+        service.add_document(&doc).unwrap();
+        service.commit().unwrap();
+
+        // Two chars should only do exact search, not prefix
+        let results = service.search(&SearchQuery::new("he")).unwrap();
+        assert!(results.is_empty()); // "he" doesn't match "hello" exactly
     }
 }
