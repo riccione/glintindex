@@ -34,6 +34,8 @@ mod mapper;
 mod schema;
 mod service;
 pub mod statistics;
+pub mod stats;
 
 pub use service::IndexService;
 pub use statistics::IndexStatistics;
+pub use stats::IndexingStats;

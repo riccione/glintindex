@@ -1,6 +1,6 @@
 use std::cell::UnsafeCell;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use tantivy::collector::TopDocs;
 use tantivy::directory::MmapDirectory;
@@ -8,6 +8,7 @@ use tantivy::query::QueryParser;
 use tantivy::{Index, IndexReader, IndexWriter, ReloadPolicy};
 
 use crate::error::{GlintIndexError, Result};
+use crate::metadata::{FileMetadata, Repository};
 use crate::model::{Document, SearchQuery, SearchResult};
 use crate::traits::{DocumentIndexer, SearchEngine};
 
@@ -43,6 +44,7 @@ pub struct IndexService {
     reader: IndexReader,
     fields: Arc<IndexFields>,
     index_path: PathBuf,
+    metadata: Option<Mutex<Repository>>,
 }
 
 // SAFETY: IndexWriter is Send. All mutable access to the writer goes
@@ -74,12 +76,17 @@ impl IndexService {
 
         let fields = Arc::new(fields);
 
+        // Initialize metadata database
+        let db_path = index_path.join("metadata.db");
+        let metadata = Repository::initialize(&db_path).ok();
+
         Ok(Self {
             index,
             writer: UnsafeCell::new(writer),
             reader,
             fields,
             index_path: index_path.to_path_buf(),
+            metadata: metadata.map(Mutex::new),
         })
     }
 
@@ -91,6 +98,11 @@ impl IndexService {
     /// Returns the path where this index is stored.
     pub fn index_path(&self) -> &Path {
         &self.index_path
+    }
+
+    /// Returns a reference to the metadata repository, if available.
+    pub fn metadata(&self) -> Option<&Mutex<Repository>> {
+        self.metadata.as_ref()
     }
 
     /// Commits all pending changes to the index.
@@ -230,6 +242,30 @@ impl DocumentIndexer for IndexService {
                 .add_document(tantivy_doc)
                 .map_err(|e| GlintIndexError::Index(format!("failed to update document: {e}")))?;
         }
+
+        // Update metadata record
+        if let Some(ref repo) = self.metadata {
+            let meta = FileMetadata {
+                path: document.path.to_string_lossy().to_string(),
+                size: document.size as i64,
+                modified: document
+                    .modified
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs() as i64)
+                    .unwrap_or(0),
+                hash: None,
+                mime: None,
+                parser_version: 1,
+                indexed_at: std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs() as i64)
+                    .unwrap_or(0),
+            };
+            if let Ok(guard) = repo.lock() {
+                let _ = guard.upsert(&meta);
+            }
+        }
+
         Ok(())
     }
 
@@ -239,6 +275,14 @@ impl DocumentIndexer for IndexService {
         unsafe {
             (*self.writer.get()).delete_term(path_term);
         }
+
+        // Remove metadata record
+        if let Some(ref repo) = self.metadata {
+            if let Ok(guard) = repo.lock() {
+                let _ = guard.remove(&path.to_string_lossy());
+            }
+        }
+
         Ok(())
     }
 
@@ -251,6 +295,14 @@ impl DocumentIndexer for IndexService {
             (*self.writer.get()).commit()?;
         }
         self.reader.reload()?;
+
+        // Clear metadata database
+        if let Some(ref repo) = self.metadata {
+            if let Ok(guard) = repo.lock() {
+                let _ = guard.clear();
+            }
+        }
+
         Ok(())
     }
 }

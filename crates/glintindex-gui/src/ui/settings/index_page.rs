@@ -181,6 +181,10 @@ pub fn build(state: &Rc<RefCell<WindowState>>) -> GtkBox {
             }
         }
         if !st.service.is_indexing() {
+            // Store the completed job's progress for statistics display
+            if let Some(progress) = st.service.current_progress() {
+                st.last_job_progress = Some(progress);
+            }
             st.progress_active = false;
             st.refresh_statistics();
             progress_clone.set_visible(false);
@@ -224,26 +228,47 @@ fn refresh_stats(
             "Configured Folders",
             &stats.indexed_folders.to_string(),
         );
+    }
 
-        if let Some(ref result) = stats.last_indexing_result {
+    // Show indexing results from the last completed job
+    if let Some(ref progress) = st.last_job_progress {
+        add_stat_row(
+            stats_box,
+            "Files Indexed",
+            &progress.files_indexed.to_string(),
+        );
+        add_stat_row(
+            stats_box,
+            "Files Re-indexed",
+            &progress.files_reindexed.to_string(),
+        );
+        add_stat_row(
+            stats_box,
+            "Files Skipped",
+            &progress.files_unchanged.to_string(),
+        );
+        if progress.files_failed > 0 {
             add_stat_row(
                 stats_box,
-                "Files Discovered",
-                &result.files_discovered.to_string(),
+                "Files Failed",
+                &progress.files_failed.to_string(),
             );
-            add_stat_row(
-                stats_box,
-                "Files Indexed",
-                &result.files_indexed.to_string(),
-            );
-            add_stat_row(
-                stats_box,
-                "Files Skipped",
-                &result.files_skipped.to_string(),
-            );
-            add_stat_row(stats_box, "Files Failed", &result.files_failed.to_string());
         }
-    } else {
+        if progress.parser_errors > 0 {
+            add_stat_row(
+                stats_box,
+                "Parser Errors",
+                &progress.parser_errors.to_string(),
+            );
+        }
+        if progress.parser_panics > 0 {
+            add_stat_row(
+                stats_box,
+                "Parser Panics",
+                &progress.parser_panics.to_string(),
+            );
+        }
+    } else if st.statistics.is_none() {
         let label = Label::builder()
             .label("No statistics available. Index some folders first.")
             .css_classes(["dim-label"])

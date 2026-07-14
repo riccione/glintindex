@@ -9,8 +9,12 @@ pub struct ScannerStatistics {
     pub directories_scanned: u64,
     /// Total number of files discovered (regardless of type).
     pub files_discovered: u64,
-    /// Number of files successfully indexed.
+    /// Number of newly indexed files (no prior metadata).
     pub files_indexed: u64,
+    /// Number of files re-indexed because content changed.
+    pub files_reindexed: u64,
+    /// Number of files skipped because unchanged (metadata matches).
+    pub files_unchanged: u64,
     /// Number of files skipped (unsupported extension, binary, ignored).
     pub files_skipped: u64,
     /// Number of files that failed to parse or read.
@@ -28,6 +32,8 @@ impl ScannerStatistics {
             directories_scanned: 0,
             files_discovered: 0,
             files_indexed: 0,
+            files_reindexed: 0,
+            files_unchanged: 0,
             files_skipped: 0,
             files_failed: 0,
             parser_errors: 0,
@@ -45,12 +51,22 @@ impl ScannerStatistics {
         self.files_discovered += 1;
     }
 
-    /// Increments the files indexed counter.
+    /// Increments the files indexed counter (newly indexed files).
     pub fn inc_files_indexed(&mut self) {
         self.files_indexed += 1;
     }
 
-    /// Increments the files skipped counter.
+    /// Increments the files reindexed counter (changed files).
+    pub fn inc_files_reindexed(&mut self) {
+        self.files_reindexed += 1;
+    }
+
+    /// Increments the files unchanged counter (skipped because unchanged).
+    pub fn inc_files_unchanged(&mut self) {
+        self.files_unchanged += 1;
+    }
+
+    /// Increments the files skipped counter (unsupported extension, binary, ignored).
     pub fn inc_files_skipped(&mut self) {
         self.files_skipped += 1;
     }
@@ -75,6 +91,8 @@ impl ScannerStatistics {
         self.directories_scanned += other.directories_scanned;
         self.files_discovered += other.files_discovered;
         self.files_indexed += other.files_indexed;
+        self.files_reindexed += other.files_reindexed;
+        self.files_unchanged += other.files_unchanged;
         self.files_skipped += other.files_skipped;
         self.files_failed += other.files_failed;
         self.parser_errors += other.parser_errors;
@@ -98,6 +116,8 @@ mod tests {
         assert_eq!(stats.directories_scanned, 0);
         assert_eq!(stats.files_discovered, 0);
         assert_eq!(stats.files_indexed, 0);
+        assert_eq!(stats.files_reindexed, 0);
+        assert_eq!(stats.files_unchanged, 0);
         assert_eq!(stats.files_skipped, 0);
         assert_eq!(stats.files_failed, 0);
         assert_eq!(stats.parser_errors, 0);
@@ -111,6 +131,9 @@ mod tests {
         stats.inc_directories_scanned();
         stats.inc_files_discovered();
         stats.inc_files_indexed();
+        stats.inc_files_reindexed();
+        stats.inc_files_reindexed();
+        stats.inc_files_unchanged();
         stats.inc_files_skipped();
         stats.inc_files_failed();
         stats.inc_files_failed();
@@ -122,6 +145,8 @@ mod tests {
         assert_eq!(stats.directories_scanned, 2);
         assert_eq!(stats.files_discovered, 1);
         assert_eq!(stats.files_indexed, 1);
+        assert_eq!(stats.files_reindexed, 2);
+        assert_eq!(stats.files_unchanged, 1);
         assert_eq!(stats.files_skipped, 1);
         assert_eq!(stats.files_failed, 2);
         assert_eq!(stats.parser_errors, 3);
@@ -134,6 +159,8 @@ mod tests {
         a.directories_scanned = 5;
         a.files_discovered = 20;
         a.files_indexed = 15;
+        a.files_reindexed = 3;
+        a.files_unchanged = 2;
         a.files_skipped = 3;
         a.files_failed = 2;
         a.parser_errors = 1;
@@ -143,6 +170,8 @@ mod tests {
         b.directories_scanned = 3;
         b.files_discovered = 10;
         b.files_indexed = 8;
+        b.files_reindexed = 1;
+        b.files_unchanged = 4;
         b.files_skipped = 1;
         b.files_failed = 1;
         b.parser_errors = 2;
@@ -153,6 +182,8 @@ mod tests {
         assert_eq!(a.directories_scanned, 8);
         assert_eq!(a.files_discovered, 30);
         assert_eq!(a.files_indexed, 23);
+        assert_eq!(a.files_reindexed, 4);
+        assert_eq!(a.files_unchanged, 6);
         assert_eq!(a.files_skipped, 4);
         assert_eq!(a.files_failed, 3);
         assert_eq!(a.parser_errors, 3);

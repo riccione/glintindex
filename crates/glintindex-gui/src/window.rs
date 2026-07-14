@@ -40,6 +40,8 @@ pub struct WindowState {
     pub settings_window: Option<Window>,
     /// Reference to the preview TextBuffer for updating content.
     pub preview_buffer: Option<TextBuffer>,
+    /// Progress from the most recent completed background job.
+    pub last_job_progress: Option<glintindex_core::tasks::Progress>,
 }
 
 impl GlintIndexWindow {
@@ -64,6 +66,7 @@ impl GlintIndexWindow {
             statistics,
             settings_window: None,
             preview_buffer: None,
+            last_job_progress: None,
         }));
 
         // ── Build the widget tree ──────────────────────────────────
@@ -164,9 +167,10 @@ impl GlintIndexWindow {
                 };
 
                 if let Some(existing) = window_to_close {
-                    // Settings window is open — close it
-                    // The close-request handler will clear settings_window
-                    existing.close();
+                    // Settings window is open — hide it and clear reference
+                    existing.set_visible(false);
+                    let mut st = state_clone.borrow_mut();
+                    st.settings_window = None;
                 } else {
                     // Settings window is closed — open it
                     ui::settings::show_settings(&window_clone, &state_clone);

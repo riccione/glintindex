@@ -18,9 +18,10 @@ pub fn execute(config_path: &str) -> Result<()> {
 
     if let Some(ref last) = stats.last_indexing_result {
         println!("\nLast indexing run:");
-        println!("  Files indexed: {}", last.files_indexed);
-        println!("  Files skipped: {}", last.files_skipped);
-        println!("  Files failed:  {}", last.files_failed);
+        println!("  Files indexed:    {}", last.files_indexed);
+        println!("  Files re-indexed: {}", last.files_reindexed);
+        println!("  Files skipped:    {}", last.files_skipped);
+        println!("  Files failed:     {}", last.files_failed);
         if last.parser_errors > 0 || last.parser_panics > 0 {
             println!("\nParser issues:");
             if last.parser_errors > 0 {
@@ -48,10 +49,13 @@ mod tests {
 
     #[test]
     fn stats_with_indexing_result() {
-        let result = IndexingResult::new(10, 200, 180, 15, 5, 3, 1);
+        let result = IndexingResult::new(10, 200, 180, 10, 5, 3, 3, 1);
         let stats = ApplicationStatistics::new(180, 3).with_last_indexing_result(result);
         let last = stats.last_indexing_result.unwrap();
         assert_eq!(last.files_indexed, 180);
+        assert_eq!(last.files_reindexed, 10);
+        assert_eq!(last.files_skipped, 5);
+        assert_eq!(last.files_failed, 3);
         assert_eq!(last.parser_errors, 3);
         assert_eq!(last.parser_panics, 1);
     }
