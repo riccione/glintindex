@@ -8,8 +8,8 @@ use std::rc::Rc;
 
 use gtk::prelude::*;
 use gtk::{
-    Application, ApplicationWindow, Box as GtkBox, Orientation, Paned, PolicyType, ScrolledWindow,
-    TextBuffer, Window,
+    Application, ApplicationWindow, Box as GtkBox, Button, Orientation, Paned, PolicyType,
+    ScrolledWindow, TextBuffer, Window,
 };
 
 use glintindex_core::{ApplicationService, PreviewService, SearchResult};
@@ -89,9 +89,32 @@ impl GlintIndexWindow {
             st.preview_buffer = Some(preview_buffer);
         }
 
-        // Connect result selection to preview loading
+        // Action bar for selected result
+        let open_btn = Button::builder().label("Open").build();
+        let open_folder_btn = Button::builder().label("Open Folder").build();
+        let copy_path_btn = Button::builder().label("Copy Path").build();
+
+        // Initially disabled (no selection)
+        open_btn.set_sensitive(false);
+        open_folder_btn.set_sensitive(false);
+        copy_path_btn.set_sensitive(false);
+
+        let action_bar = GtkBox::new(Orientation::Horizontal, 8);
+        action_bar.append(&open_btn);
+        action_bar.append(&open_folder_btn);
+        action_bar.append(&copy_path_btn);
+
+        // Preview pane: text view + action bar
+        let preview_pane = GtkBox::new(Orientation::Vertical, 0);
+        preview_pane.append(&preview_widget);
+        preview_pane.append(&action_bar);
+
+        // Connect result selection to preview loading and button state updates
         {
             let state_clone = state.clone();
+            let open_btn_clone = open_btn.clone();
+            let open_folder_btn_clone = open_folder_btn.clone();
+            let copy_path_btn_clone = copy_path_btn.clone();
             results_listbox.connect_row_selected(move |_listbox, row| {
                 if let Some(row) = row {
                     let index = row.index() as usize;
@@ -104,6 +127,12 @@ impl GlintIndexWindow {
                             .map(|f| f.to_string_lossy().to_string())
                             .unwrap_or_else(|| path.display().to_string());
 
+                        // Enable action buttons
+                        let file_exists = path.exists();
+                        open_btn_clone.set_sensitive(file_exists);
+                        open_folder_btn_clone.set_sensitive(true);
+                        copy_path_btn_clone.set_sensitive(true);
+
                         // Load preview synchronously (fast with cached SyntaxHighlighter)
                         let output = st.preview_service.load_preview(&path, &st.query);
                         st.preview_text = format_preview_content(&output);
@@ -113,6 +142,11 @@ impl GlintIndexWindow {
                             buffer.set_text(&st.preview_text);
                         }
                     }
+                } else {
+                    // No selection — disable all buttons
+                    open_btn_clone.set_sensitive(false);
+                    open_folder_btn_clone.set_sensitive(false);
+                    copy_path_btn_clone.set_sensitive(false);
                 }
             });
         }
@@ -128,14 +162,13 @@ impl GlintIndexWindow {
             .build();
 
         let preview_scroll = ScrolledWindow::builder()
-            .child(&preview_widget)
+            .child(&preview_pane)
             .vscrollbar_policy(PolicyType::Automatic)
             .hscrollbar_policy(PolicyType::Automatic)
             .build();
 
         // Paned split view
-        // Calculate initial position from config ratio and window width
-        let initial_width = 1000; // default_width
+        let initial_width = 1000;
         let initial_ratio = {
             let st = state.borrow();
             st.service.config().main_split_ratio_f32()
@@ -182,26 +215,66 @@ impl GlintIndexWindow {
             .child(&content)
             .build();
 
+        // Wire up action button click handlers (after window creation for clipboard access)
+        {
+            let state_clone = state.clone();
+            open_btn.connect_clicked(move |_| {
+                let st = state_clone.borrow();
+                if let Some(index) = st.selected_index {
+                    if index < st.results.len() {
+                        let path = &st.results[index].document.path;
+                        if let Err(e) = crate::file_actions::open_file(path) {
+                            eprintln!("Open file failed: {e}");
+                        }
+                    }
+                }
+            });
+        }
+        {
+            let state_clone = state.clone();
+            open_folder_btn.connect_clicked(move |_| {
+                let st = state_clone.borrow();
+                if let Some(index) = st.selected_index {
+                    if index < st.results.len() {
+                        let path = &st.results[index].document.path;
+                        if let Err(e) = crate::file_actions::reveal_in_file_manager(path) {
+                            eprintln!("Reveal in file manager failed: {e}");
+                        }
+                    }
+                }
+            });
+        }
+        {
+            let state_clone = state.clone();
+            let window_ref = window.clone();
+            copy_path_btn.connect_clicked(move |_| {
+                let st = state_clone.borrow();
+                if let Some(index) = st.selected_index {
+                    if index < st.results.len() {
+                        let path = &st.results[index].document.path;
+                        if let Err(e) = crate::file_actions::copy_path(path, &window_ref) {
+                            eprintln!("Copy path failed: {e}");
+                        }
+                    }
+                }
+            });
+        }
+
         // Connect settings button to open/close settings window (toggle)
         {
             let window_clone = window.clone();
             let state_clone = state.clone();
             settings_btn.connect_clicked(move |_| {
-                // Clone the window reference while borrowing state,
-                // then drop the borrow before calling close() to avoid
-                // a double-borrow panic when close-request fires.
                 let window_to_close = {
                     let st = state_clone.borrow();
                     st.settings_window.clone()
                 };
 
                 if let Some(existing) = window_to_close {
-                    // Settings window is open — hide it and clear reference
                     existing.set_visible(false);
                     let mut st = state_clone.borrow_mut();
                     st.settings_window = None;
                 } else {
-                    // Settings window is closed — open it
                     ui::settings::show_settings(&window_clone, &state_clone);
                 }
             });
