@@ -47,6 +47,7 @@ pub fn build(state: &Rc<RefCell<WindowState>>) -> GtkBox {
 
     let st = state.borrow();
     let current_theme = st.service.config().theme;
+    let current_font_size = st.service.config().clamped_font_size();
 
     let radio_system = CheckButton::with_label("System");
     let radio_light = CheckButton::with_label("Light");
@@ -71,7 +72,9 @@ pub fn build(state: &Rc<RefCell<WindowState>>) -> GtkBox {
             if btn.is_active() {
                 let mut st = state_clone.borrow_mut();
                 let _ = st.service.set_theme(glintindex_core::Theme::System);
-                st.theme_manager.apply(glintindex_core::Theme::System);
+                let font_size = st.service.config().clamped_font_size();
+                st.theme_manager
+                    .apply(glintindex_core::Theme::System, font_size);
             }
         });
     }
@@ -81,7 +84,9 @@ pub fn build(state: &Rc<RefCell<WindowState>>) -> GtkBox {
             if btn.is_active() {
                 let mut st = state_clone.borrow_mut();
                 let _ = st.service.set_theme(glintindex_core::Theme::Light);
-                st.theme_manager.apply(glintindex_core::Theme::Light);
+                let font_size = st.service.config().clamped_font_size();
+                st.theme_manager
+                    .apply(glintindex_core::Theme::Light, font_size);
             }
         });
     }
@@ -91,7 +96,9 @@ pub fn build(state: &Rc<RefCell<WindowState>>) -> GtkBox {
             if btn.is_active() {
                 let mut st = state_clone.borrow_mut();
                 let _ = st.service.set_theme(glintindex_core::Theme::Dark);
-                st.theme_manager.apply(glintindex_core::Theme::Dark);
+                let font_size = st.service.config().clamped_font_size();
+                st.theme_manager
+                    .apply(glintindex_core::Theme::Dark, font_size);
             }
         });
     }
@@ -112,11 +119,9 @@ pub fn build(state: &Rc<RefCell<WindowState>>) -> GtkBox {
         .build();
     content.append(&font_size_label);
 
-    let current_font_size = st.service.config().clamped_font_size() as f64;
-
     let font_size_spin = SpinButton::builder()
         .adjustment(&gtk::Adjustment::new(
-            current_font_size,
+            current_font_size as f64,
             FONT_SIZE_MIN,
             FONT_SIZE_MAX,
             FONT_SIZE_STEP,
@@ -133,7 +138,8 @@ pub fn build(state: &Rc<RefCell<WindowState>>) -> GtkBox {
             let new_size = spin_button.value() as u32;
             let mut st = state_clone.borrow_mut();
             let _ = st.service.set_font_size(new_size);
-            apply_font_size(&st.font_css_provider, new_size);
+            let theme = st.service.config().theme;
+            st.theme_manager.apply(theme, new_size);
         });
     }
 
@@ -151,12 +157,4 @@ pub fn build(state: &Rc<RefCell<WindowState>>) -> GtkBox {
     content.append(&font_size_row);
 
     content
-}
-
-/// Applies the given font size to the application using the stored CSS provider.
-///
-/// The provider is registered once at startup and reused for all font size changes.
-pub fn apply_font_size(font_css_provider: &gtk::CssProvider, font_size: u32) {
-    let css = format!("* {{ font-size: {}pt; }}", font_size);
-    font_css_provider.load_from_data(&css);
 }
