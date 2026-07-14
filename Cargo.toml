@@ -38,4 +38,4 @@ calamine = "0.36.0"
 zip = "8.6.0"
 quick-xml = "0.41.0"
 rtf-parser = "0.4.3"
-rusqlite = { version = "0.35", features = ["bundled"] }
+rusqlite = { version = "0.40.1", features = ["bundled"] }

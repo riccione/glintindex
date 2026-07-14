@@ -19,7 +19,7 @@ pub struct FileMetadata {
     /// Absolute path to the file.
     pub path: String,
     /// File size in bytes at the time of indexing.
-    pub size: u64,
+    pub size: i64,
     /// Last modification time as Unix timestamp (seconds since epoch).
     pub modified: i64,
     /// Optional content hash for change detection.
@@ -39,7 +39,7 @@ impl FileMetadata {
     /// modification time. Sets `indexed_at` to the current time.
     pub fn from_path(path: &Path) -> std::result::Result<Self, std::io::Error> {
         let metadata = std::fs::metadata(path)?;
-        let size = metadata.len();
+        let size = metadata.len() as i64;
         let modified = metadata
             .modified()
             .ok()
@@ -61,7 +61,7 @@ impl FileMetadata {
     /// Creates a new `FileMetadata` with explicit values.
     pub fn new(
         path: String,
-        size: u64,
+        size: i64,
         modified: i64,
         hash: Option<String>,
         mime: Option<String>,

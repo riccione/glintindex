@@ -247,7 +247,7 @@ impl DocumentIndexer for IndexService {
         if let Some(ref repo) = self.metadata {
             let meta = FileMetadata {
                 path: document.path.to_string_lossy().to_string(),
-                size: document.size,
+                size: document.size as i64,
                 modified: document
                     .modified
                     .duration_since(std::time::UNIX_EPOCH)
