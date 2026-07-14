@@ -71,6 +71,7 @@ pub fn build(state: &Rc<RefCell<WindowState>>, window: &gtk::Window) -> GtkBox {
             if btn.is_active() {
                 let mut st = state_clone.borrow_mut();
                 let _ = st.service.set_theme(glintindex_core::Theme::System);
+                st.theme_manager.apply(glintindex_core::Theme::System);
             }
         });
     }
@@ -80,6 +81,7 @@ pub fn build(state: &Rc<RefCell<WindowState>>, window: &gtk::Window) -> GtkBox {
             if btn.is_active() {
                 let mut st = state_clone.borrow_mut();
                 let _ = st.service.set_theme(glintindex_core::Theme::Light);
+                st.theme_manager.apply(glintindex_core::Theme::Light);
             }
         });
     }
@@ -89,6 +91,7 @@ pub fn build(state: &Rc<RefCell<WindowState>>, window: &gtk::Window) -> GtkBox {
             if btn.is_active() {
                 let mut st = state_clone.borrow_mut();
                 let _ = st.service.set_theme(glintindex_core::Theme::Dark);
+                st.theme_manager.apply(glintindex_core::Theme::Dark);
             }
         });
     }

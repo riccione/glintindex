@@ -1,0 +1,92 @@
+/* Light theme for GlintIndex */
+
+/* Application window */
+window {
+    background-color: @theme_bg_color;
+}
+
+/* Search entry */
+searchentry {
+    background-color: @theme_base_color;
+    border-radius: 6px;
+    padding: 4px 8px;
+}
+
+searchentry:focus {
+    border-color: @theme_selected_bg_color;
+}
+
+/* Search results list */
+list {
+    background-color: @theme_base_color;
+}
+
+list row {
+    padding: 4px 8px;
+}
+
+list row:selected {
+    background-color: @theme_selected_bg_color;
+    color: @theme_selected_fg_color;
+}
+
+/* Preview pane */
+textview {
+    background-color: @theme_base_color;
+}
+
+textview textview text {
+    font-family: monospace;
+    font-size: 12pt;
+}
+
+/* Settings pages */
+title-1 {
+    font-weight: bold;
+    font-size: 18pt;
+}
+
+title-2 {
+    font-weight: bold;
+    font-size: 14pt;
+}
+
+/* Buttons */
+button {
+    border-radius: 6px;
+    padding: 4px 12px;
+}
+
+/* Status bar */
+statusbar {
+    background-color: @theme_bg_color;
+    border-top: 1px solid @borders;
+    padding: 4px 8px;
+}
+
+/* Split panes */
+paned > divider {
+    background-color: @borders;
+}
+
+/* Scrollbars */
+scrollbar {
+    background-color: transparent;
+}
+
+scrollbar slider {
+    background-color: @theme_fg_color;
+    border-radius: 4px;
+    min-width: 6px;
+    min-height: 6px;
+}
+
+/* Labels */
+dim-label {
+    color: mix(@theme_fg_color, @theme_bg_color, 0.4);
+}
+
+caption {
+    font-size: 11pt;
+    color: mix(@theme_fg_color, @theme_bg_color, 0.4);
+}

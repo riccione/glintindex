@@ -14,6 +14,7 @@ use gtk::{
 
 use glintindex_core::{ApplicationService, PreviewService, SearchResult};
 
+use crate::theme::ThemeManager;
 use crate::ui;
 
 /// The main application window.
@@ -42,6 +43,8 @@ pub struct WindowState {
     pub preview_buffer: Option<TextBuffer>,
     /// Progress from the most recent completed background job.
     pub last_job_progress: Option<glintindex_core::tasks::Progress>,
+    /// Centralized theme manager for CSS loading and application.
+    pub theme_manager: ThemeManager,
 }
 
 impl GlintIndexWindow {
@@ -50,6 +53,7 @@ impl GlintIndexWindow {
         let service = ApplicationService::with_default_config()
             .expect("Failed to initialize ApplicationService");
 
+        let theme = service.config().theme;
         let status = compute_status(&service);
 
         let statistics = service.statistics().ok();
@@ -67,6 +71,7 @@ impl GlintIndexWindow {
             settings_window: None,
             preview_buffer: None,
             last_job_progress: None,
+            theme_manager: ThemeManager::new(theme),
         }));
 
         // ── Build the widget tree ──────────────────────────────────
