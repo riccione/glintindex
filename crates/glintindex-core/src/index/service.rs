@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 use tantivy::collector::TopDocs;
 use tantivy::directory::MmapDirectory;
 use tantivy::query::{BooleanQuery, FuzzyTermQuery, Occur, QueryParser};
-use tantivy::{Index, IndexReader, IndexWriter, Term, ReloadPolicy};
+use tantivy::{Index, IndexReader, IndexWriter, ReloadPolicy, Term};
 
 use crate::error::{GlintIndexError, Result};
 use crate::metadata::{FileMetadata, Repository};
