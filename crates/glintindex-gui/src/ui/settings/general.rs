@@ -28,7 +28,7 @@ const FONT_SIZE_MAX: f64 = 32.0;
 const FONT_SIZE_STEP: f64 = 1.0;
 
 /// Builds the General settings page.
-pub fn build(state: &Rc<RefCell<WindowState>>) -> GtkBox {
+pub fn build(state: &Rc<RefCell<WindowState>>, window: &gtk::Window) -> GtkBox {
     let content = GtkBox::new(Orientation::Vertical, 12);
     content.set_margin_top(16);
     content.set_margin_bottom(16);
@@ -86,11 +86,7 @@ pub fn build(state: &Rc<RefCell<WindowState>>) -> GtkBox {
     // Apply font size immediately on change
     {
         let state_clone = state.clone();
-        let window_clone = state
-            .borrow()
-            .settings_window
-            .clone()
-            .expect("settings_window must exist");
+        let window_clone = window.clone();
         font_size_spin.connect_value_changed(move |spin_button| {
             let new_size = spin_button.value() as u32;
             let mut st = state_clone.borrow_mut();

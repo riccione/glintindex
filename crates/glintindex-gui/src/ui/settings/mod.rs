@@ -64,7 +64,7 @@ pub fn show_settings(parent: &impl IsA<Window>, state: &Rc<RefCell<WindowState>>
         "About",
     ];
 
-    let general_page = general::build(state);
+    let general_page = general::build(state, &settings_window);
     let indexed_folders_page = indexed_folders::build(state, &settings_window);
     let ignored_folders_page = ignored_folders::build(state);
     let index_page_widget = index_page::build(state);
