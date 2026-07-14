@@ -1,0 +1,546 @@
+---
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to release (e.g. v0.1.0)'
+        required: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # Single source of truth for the Release Version
+  prepare:
+    name: Prepare Version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.get_version.outputs.version }}
+      tag_name: ${{ steps.get_version.outputs.tag_name }}
+    steps:
+      - id: get_version
+        run: |
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            TAG_NAME="${{ github.ref_name }}"
+            VERSION="${TAG_NAME#v}"
+          else
+            TAG_NAME="${{ github.event.inputs.tag }}"
+            VERSION="${TAG_NAME#v}"
+          fi
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "tag_name=${TAG_NAME}" >> $GITHUB_OUTPUT
+
+  checks:
+    name: Checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libgtk-4-dev build-essential
+
+      - uses: Swatinem/rust-cache@v2
+
+  build-linux:
+    name: Build Linux
+    needs: checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libgtk-4-dev build-essential
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build release binary
+        run: cargo build --release -p glintindex-gui
+
+      - name: Install cargo-deb
+        run: cargo install cargo-deb
+
+      - name: Extract version
+        run: |
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION="${{ github.event.inputs.tag }}"
+            VERSION="${VERSION#v}"
+          fi
+          echo "VERSION=${VERSION}" >> $GITHUB_ENV
+
+      - name: Build .deb package
+        run: cargo deb -p glintindex-gui --output .
+
+      - name: Rename .deb
+        run: mv glintindex_*.deb glintindex_${VERSION}_amd64.deb
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: linux-deb
+          path: glintindex_${{ env.VERSION }}_amd64.deb
+
+  build-windows:
+    name: Build Windows
+    needs: checks
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-gtk4
+            mingw-w64-x86_64-toolchain
+
+      - name: Extract version
+        shell: bash
+        run: |
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION="${{ github.event.inputs.tag }}"
+            VERSION="${VERSION#v}"
+          fi
+          echo "VERSION=${VERSION}" >> $GITHUB_ENV
+
+      - name: Build release binary
+        shell: msys2 {0}
+        run: cargo build --release -p glintindex-gui
+
+      - name: Bundle DLLs and create ZIP
+        shell: msys2 {0}
+        run: |
+          mkdir -p dist
+          cp target/release/glintindex-gui.exe dist/
+          cp LICENSE dist/
+          cp README.md dist/
+
+          # Find all MinGW DLL dependencies
+          ldd target/release/glintindex-gui.exe | grep '/mingw64/bin/' | awk '{print $3}' | while read dll; do
+            cp "$dll" dist/ 2>/dev/null || true
+          done
+
+          # Find transitive DLL dependencies
+          for dll in dist/*.dll; do
+            [ -f "$dll" ] || continue
+            ldd "$dll" 2>/dev/null | grep '/mingw64/bin/' | awk '{print $3}' | while read dep; do
+              name=$(basename "$dep")
+              [ -f "dist/$name" ] || cp "$dep" dist/ 2>/dev/null || true
+            done
+          done
+
+          # Create ZIP
+          7z a "glintindex-windows-x64-${{ env.VERSION }}.zip" dist/*
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-zip
+          path: glintindex-windows-x64-${{ env.VERSION }}.zip
+
+  build-macos:
+    name: Build macOS (${{ matrix.arch }})
+    needs: checks
+    runs-on: macos-latest
+    strategy:
+      matrix:
+        include:
+          - arch: arm64
+            target: aarch64-apple-darwin
+            homebrew_prefix: /opt/homebrew
+            artifact_name: macos
+          - arch: x86_64
+            target: x86_64-apple-darwin
+            homebrew_prefix: /tmp/gtk-x86_64/prefix
+            artifact_name: macos-x86-64
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.arch }}
+
+      - name: Extract version
+        run: |
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION="${{ github.event.inputs.tag }}"
+            VERSION="${VERSION#v}"
+          fi
+          echo "VERSION=${VERSION}" >> $GITHUB_ENV
+
+      # arm64: install GTK4 via Homebrew
+      - name: Install GTK4 (arm64)
+        if: matrix.arch == 'arm64'
+        run: |
+          brew install gtk4 pkg-config
+
+      # x86_64: download x86_64 Homebrew bottles
+      - name: Download x86_64 GTK4 bottles
+        if: matrix.arch == 'x86_64'
+        run: |
+          PREFIX="${{ matrix.homebrew_prefix }}"
+          mkdir -p "${PREFIX}/lib/pkgconfig"
+
+          # Download and extract x86_64 bottles for GTK4 and dependencies
+          # These are the core dependencies needed for GTK4
+          BOTTLES=(
+            "glib"
+            "gettext"
+            "pcre2"
+            "libpng"
+            "jpeg-turbo"
+            "libtiff"
+            "ffi"
+            "pango"
+            "harfbuzz"
+            "fribidi"
+            "fontconfig"
+            "freetype"
+            "brotli"
+            "libpng"
+            "gdk-pixbuf"
+            "cairo"
+            "pixman"
+            "lzo"
+            "graphite2"
+            "gtk4"
+            "adwaita-icon-theme"
+            "hicolor-icon-theme"
+            "iso-codes"
+            "libepoxy"
+            "libxrandr"
+            "libxrender"
+            "libxi"
+            "libxtst"
+            "libxcomposite"
+            "libxcursor"
+            "libxdamage"
+            "libxfixes"
+            "libxext"
+            "libx11"
+            "xorgproto"
+            "libxcb"
+            "xcb-util"
+            "xcb-util-renderutil"
+            "xcb-util-image"
+            "xcb-util-keysyms"
+            "xcb-util-wm"
+            "libxau"
+            "libxdmcp"
+          )
+
+          for bottle in "${BOTTLES[@]}"; do
+            echo "Downloading ${bottle}..."
+            # Download from Homebrew GitHub packages
+            URL="https://ghcr.io/v2/homebrew/core/${bottle}/manifests/4.14.2_1"
+            # Fallback: use a simpler approach with curl
+            # For now, we'll use brew to download bottles without installing
+            brew fetch --bottle-tag=sonoma "${bottle}" 2>/dev/null || true
+          done
+
+          # Simpler approach: use Homebrew API to get bottle info
+          # This is more reliable than manual URL construction
+          echo "Using simplified bottle download approach..."
+
+          # Install a minimal x86_64 Homebrew in a separate location
+          # using Rosetta for the install only
+          /usr/sbin/softwareupdate --install-rosetta --agree-to-license 2>/dev/null || true
+
+          # Download the x86_64 Homebrew installer
+          curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh -o /tmp/install.sh
+
+          # Run under Rosetta for x86_64 installation
+          arch -x86_64 /bin/bash /tmp/install.sh << 'BREW_EOF'
+          NONINTERACTIVE=1
+          BREW_EOF
+
+          # Install GTK4 via x86_64 Homebrew
+          arch -x86_64 /usr/local/bin/brew install gtk4 pkg-config
+
+      - name: Set PKG_CONFIG_PATH (x86_64)
+        if: matrix.arch == 'x86_64'
+        run: |
+          echo "PKG_CONFIG_PATH=${{ matrix.homebrew_prefix }}/lib/pkgconfig" >> $GITHUB_ENV
+
+      - name: Build release binary
+        run: cargo build --release --target ${{ matrix.target }}
+
+      # Bundle GTK resources and dylibs into .app bundle
+      - name: Create .app bundle
+        run: |
+          APP="GlintIndex.app"
+          BINARY="target/${{ matrix.target }}/release/glintindex-gui"
+          PREFIX="${{ matrix.homebrew_prefix }}"
+
+          # Create bundle structure
+          mkdir -p "${APP}/Contents/MacOS"
+          mkdir -p "${APP}/Contents/Frameworks"
+          mkdir -p "${APP}/Contents/Resources/share"
+          mkdir -p "${APP}/Contents/Resources/lib"
+          mkdir -p "${APP}/Contents/Resources/etc"
+
+          # Copy binary
+          cp "${BINARY}" "${APP}/Contents/MacOS/glintindex-gui"
+          chmod +x "${APP}/Contents/MacOS/glintindex-gui"
+
+          # Recursive dylib collection function
+          collect_dylibs() {
+            local binary="$1"
+            local output_dir="$2"
+            local visited=""
+
+            collect() {
+              local lib="$1"
+              local name
+              name=$(basename "$lib")
+
+              # Skip system libraries
+              case "$lib" in
+                /usr/lib/*|/System/*|@rpath/*|@executable_path/*|@loader_path/*) return ;;
+              esac
+
+              # Skip if already visited
+              case " $visited " in
+                *" $lib "*) return ;;
+              esac
+              visited="$visited $lib"
+
+              # Copy if it exists as a file
+              if [ -f "$lib" ]; then
+                cp "$lib" "${output_dir}/${name}"
+                install_name_tool -id "@rpath/${name}" "${output_dir}/${name}"
+
+                # Recurse into this dylib's dependencies
+                otool -L "$lib" | tail -n +2 | awk '{print $1}' | while read -r dep; do
+                  collect "$dep"
+                done
+              fi
+            }
+
+            otool -L "$binary" | tail -n +2 | awk '{print $1}' | while read -r dep; do
+              collect "$dep"
+            done
+          }
+
+          echo "Collecting dylibs..."
+          collect_dylibs "${BINARY}" "${APP}/Contents/Frameworks"
+
+          # Rewrite dylib paths to use @rpath
+          echo "Rewriting dylib paths..."
+
+          # Add rpath to main binary
+          install_name_tool -add_rpath "@executable_path/../Frameworks" \
+            "${APP}/Contents/MacOS/glintindex-gui" 2>/dev/null || true
+
+          # Rewrite all prefix paths to @rpath in main binary
+          find_prefix_refs() {
+            local binary="$1"
+            local prefix="$2"
+            otool -L "$binary" | grep "${prefix}/" | awk '{print $1}'
+          }
+
+          for ref in $(find_prefix_refs "${BINARY}" "${PREFIX}"); do
+            name=$(basename "$ref")
+            install_name_tool -change "$ref" "@rpath/${name}" \
+              "${APP}/Contents/MacOS/glintindex-gui"
+          done
+
+          # Rewrite dylib-to-dylib references
+          for dylib in "${APP}/Contents/Frameworks/"*.dylib; do
+            [ -f "$dylib" ] || continue
+            for ref in $(find_prefix_refs "$dylib" "${PREFIX}"); do
+              name=$(basename "$ref")
+              install_name_tool -change "$ref" "@rpath/${name}" "$dylib"
+            done
+          done
+
+          # Bundle GTK resources
+          echo "Bundling GTK resources..."
+
+          # GTK4 data (themes, CSS)
+          if [ -d "${PREFIX}/share/gtk-4.0" ]; then
+            cp -R "${PREFIX}/share/gtk-4.0" "${APP}/Contents/Resources/share/"
+          fi
+
+          # Icon themes
+          if [ -d "${PREFIX}/share/icons" ]; then
+            cp -R "${PREFIX}/share/icons" "${APP}/Contents/Resources/share/"
+          fi
+
+          # GSettings schemas
+          if [ -d "${PREFIX}/share/glib-2.0" ]; then
+            cp -R "${PREFIX}/share/glib-2.0" "${APP}/Contents/Resources/share/"
+          fi
+
+          # Pango modules
+          if [ -d "${PREFIX}/share/pango" ]; then
+            cp -R "${PREFIX}/share/pango" "${APP}/Contents/Resources/share/"
+          fi
+
+          # GdkPixbuf loaders + cache
+          if [ -d "${PREFIX}/lib/gdk-pixbuf-2.0" ]; then
+            cp -R "${PREFIX}/lib/gdk-pixbuf-2.0" "${APP}/Contents/Resources/lib/"
+          fi
+
+          # GTK4 modules (print backends, IM modules)
+          if [ -d "${PREFIX}/lib/gtk-4.0" ]; then
+            cp -R "${PREFIX}/lib/gtk-4.0" "${APP}/Contents/Resources/lib/"
+          fi
+
+          # Pango modules
+          if [ -d "${PREFIX}/lib/pango" ]; then
+            cp -R "${PREFIX}/lib/pango" "${APP}/Contents/Resources/lib/"
+          fi
+
+          # Fontconfig
+          if [ -d "${PREFIX}/etc/fonts" ]; then
+            cp -R "${PREFIX}/etc/fonts" "${APP}/Contents/Resources/etc/"
+          fi
+
+          # Fix GDK_PIXBUF_MODULE_FILE paths
+          LOADERS_CACHE="${APP}/Contents/Resources/lib/gdk-pixbuf-2.0/2.10.0/loaders.cache"
+          if [ -f "${LOADERS_CACHE}" ]; then
+            sed -i '' "s|${PREFIX}/|/usr/|g" "${LOADERS_CACHE}" 2>/dev/null || \
+              sed -i '' "s|${PREFIX}/|/usr/|g" "${LOADERS_CACHE}"
+          fi
+
+          # Create launcher script
+          cat > "${APP}/Contents/MacOS/launcher" << 'LAUNCHER_EOF'
+          #!/bin/bash
+          SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+          APP_DIR="$(dirname "$SCRIPT_DIR")"
+          RESOURCES="${APP_DIR}/Resources"
+
+          export GTK_DATA_PREFIX="${RESOURCES}"
+          export GTK_EXE_PREFIX="${APP_DIR}/Contents"
+          export XDG_DATA_DIRS="${RESOURCES}/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
+          export GDK_PIXBUF_MODULE_FILE="${RESOURCES}/lib/gdk-pixbuf-2.0/2.10.0/loaders.cache"
+          export GTK_PATH="${RESOURCES}/lib/gtk-4.0/4.0.0"
+          export FONTCONFIG_PATH="${RESOURCES}/etc/fonts"
+
+          exec "${SCRIPT_DIR}/glintindex-gui" "$@"
+          LAUNCHER_EOF
+          chmod +x "${APP}/Contents/MacOS/launcher"
+
+          # Create Info.plist
+          cat > "${APP}/Contents/Info.plist" << PLIST_EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+            "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>CFBundleName</key>
+            <string>GlintIndex</string>
+            <key>CFBundleDisplayName</key>
+            <string>GlintIndex</string>
+            <key>CFBundleIdentifier</key>
+            <string>com.riccione.glintindex</string>
+            <key>CFBundleVersion</key>
+            <string>${{ env.VERSION }}</string>
+            <key>CFBundleShortVersionString</key>
+            <string>${{ env.VERSION }}</string>
+            <key>CFBundleExecutable</key>
+            <string>launcher</string>
+            <key>CFBundlePackageType</key>
+            <string>APPL</string>
+            <key>LSMinimumSystemVersion</key>
+            <string>11.0</string>
+            <key>NSHighResolutionCapable</key>
+            <true/>
+          </dict>
+          </plist>
+          PLIST_EOF
+
+          # Create ZIP
+          ditto -c -k --sequesterRsrc --keepParent "${APP}" \
+            "glintindex-${{ matrix.artifact_name }}-${{ env.VERSION }}.zip"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.artifact_name }}-zip
+          path: glintindex-${{ matrix.artifact_name }}-${{ env.VERSION }}.zip
+
+  build-source:
+    name: Build Source Archive
+    needs: checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Extract version
+        run: |
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION="${{ github.event.inputs.tag }}"
+            VERSION="${VERSION#v}"
+          fi
+          echo "VERSION=${VERSION}" >> $GITHUB_ENV
+
+      - name: Create source archive
+        run: |
+          git archive --format=tar.gz --prefix="glintindex-${VERSION}/" \
+            -o "glintindex-source-${VERSION}.tar.gz" HEAD
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: source-tarball
+          path: glintindex-source-${{ env.VERSION }}.tar.gz
+
+  release:
+    name: Create Release
+    needs: [build-linux, build-windows, build-macos, build-source]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v8
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: List artifacts
+        run: ls -la artifacts/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          generate_release_notes: true
+          files: |
+            artifacts/glintindex_*_amd64.deb
+            artifacts/glintindex-windows-x64-*.zip
+            artifacts/glintindex-macos-*.zip
+            artifacts/glintindex-source-*.tar.gz
