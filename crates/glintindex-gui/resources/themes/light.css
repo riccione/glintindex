@@ -1,0 +1,93 @@
+/* Light theme for GlintIndex */
+
+/* Application window */
+window {
+    background-color: #ffffff;
+}
+
+/* Search entry */
+searchentry {
+    background-color: #f5f5f5;
+    border-radius: 6px;
+    padding: 4px 8px;
+    border: 1px solid #d0d0d0;
+}
+
+searchentry:focus {
+    border-color: #3584e4;
+}
+
+/* Search results list */
+list {
+    background-color: #ffffff;
+}
+
+list row {
+    padding: 4px 8px;
+}
+
+list row:selected {
+    background-color: #3584e4;
+    color: #ffffff;
+}
+
+/* Preview pane */
+textview {
+    background-color: #f8f8f8;
+}
+
+textview textview text {
+    font-family: monospace;
+    font-size: 12pt;
+}
+
+/* Settings pages */
+title-1 {
+    font-weight: bold;
+    font-size: 18pt;
+}
+
+title-2 {
+    font-weight: bold;
+    font-size: 14pt;
+}
+
+/* Buttons */
+button {
+    border-radius: 6px;
+    padding: 4px 12px;
+}
+
+/* Status bar */
+statusbar {
+    background-color: #f0f0f0;
+    border-top: 1px solid #d0d0d0;
+    padding: 4px 8px;
+}
+
+/* Split panes */
+paned > divider {
+    background-color: #d0d0d0;
+}
+
+/* Scrollbars */
+scrollbar {
+    background-color: transparent;
+}
+
+scrollbar slider {
+    background-color: #a0a0a0;
+    border-radius: 4px;
+    min-width: 6px;
+    min-height: 6px;
+}
+
+/* Labels */
+dim-label {
+    color: #666666;
+}
+
+caption {
+    font-size: 11pt;
+    color: #666666;
+}

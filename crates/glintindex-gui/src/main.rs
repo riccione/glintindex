@@ -5,6 +5,7 @@
 //! live search capabilities.
 
 mod application;
+mod theme;
 mod ui;
 mod window;
 
