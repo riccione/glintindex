@@ -280,7 +280,7 @@ impl FileWatcher {
 
         match event {
             WatchEvent::Created(path) | WatchEvent::Modified(path) => {
-                if let Err(err) = process_file(path, &self.index_service, true) {
+                if let Err(err) = process_file(path, &self.index_service) {
                     tracing::warn!("failed to index {}: {err}", path.display());
                 }
             }
@@ -306,11 +306,7 @@ impl FileWatcher {
 ///
 /// Skips files with unsupported extensions and binary content. This function
 /// reuses the scanner's ignore rules and binary detection logic.
-fn process_file(
-    path: &Path,
-    index_service: &Arc<Mutex<IndexService>>,
-    is_update: bool,
-) -> Result<()> {
+fn process_file(path: &Path, index_service: &Arc<Mutex<IndexService>>) -> Result<()> {
     if !IgnoreRules::is_supported_file(path) {
         return Err(GlintIndexError::Other("unsupported file type".into()));
     }
@@ -342,13 +338,7 @@ fn process_file(
         .lock()
         .map_err(|e| GlintIndexError::Other(format!("index service lock poisoned: {e}")))?;
 
-    if is_update {
-        service
-            .add_document(&document)
-            .or_else(|_| service.update_document(&document))?;
-    } else {
-        service.add_document(&document)?;
-    }
+    service.update_document(&document)?;
 
     service.commit()?;
     service.reload_reader()?;
