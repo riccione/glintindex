@@ -136,6 +136,45 @@ impl<'a> FilesystemScanner<'a> {
                 continue;
             }
 
+            // Check metadata to determine if file needs processing
+            let path_str = path.to_string_lossy();
+            let file_meta = std::fs::metadata(path);
+            let current_size = file_meta.as_ref().map(|m| m.len() as i64).unwrap_or(0);
+            let current_modified = file_meta
+                .as_ref()
+                .ok()
+                .and_then(|m| m.modified().ok())
+                .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+                .map(|d| d.as_secs() as i64)
+                .unwrap_or(0);
+
+            // Query metadata repository to check if file has changed
+            let is_new_file = if let Some(repo) = self.index_service.metadata() {
+                if let Ok(guard) = repo.lock() {
+                    match guard.get(&path_str) {
+                        Ok(Some(existing)) => {
+                            // Metadata exists — check if file has changed
+                            if existing.size == current_size
+                                && existing.modified == current_modified
+                            {
+                                // File unchanged — skip processing
+                                stats.inc_files_unchanged();
+                                self.reporter.on_file_skipped(path);
+                                continue;
+                            }
+                            // File changed — will be re-indexed
+                            false
+                        }
+                        Ok(None) => true, // No metadata — new file
+                        Err(_) => true,   // Query error — process anyway
+                    }
+                } else {
+                    true // Lock poisoned — process anyway
+                }
+            } else {
+                true // No metadata repository — process anyway
+            };
+
             match self.process_file(path) {
                 Ok(doc) => {
                     if let Err(err) = self.index_service.update_document(&doc) {
@@ -144,7 +183,11 @@ impl<'a> FilesystemScanner<'a> {
                         self.reporter.on_file_failed(path, &err.to_string());
                     } else {
                         tracing::info!("Indexed: {}", path.display());
-                        stats.inc_files_indexed();
+                        if is_new_file {
+                            stats.inc_files_indexed();
+                        } else {
+                            stats.inc_files_reindexed();
+                        }
                         self.reporter.on_file_indexed(path);
                     }
                 }
@@ -631,5 +674,102 @@ mod tests {
         assert_eq!(parser_type_name(Path::new("test.odt")), "ODT");
         assert_eq!(parser_type_name(Path::new("test.txt")), "text");
         assert_eq!(parser_type_name(Path::new("test.rs")), "text");
+    }
+
+    // ── Metadata-based skipping tests ────────────────────────────
+
+    #[test]
+    fn first_indexing_all_files_are_indexed() {
+        let (tmp, root) = setup_test_dir();
+        fs::write(root.join("a.txt"), "hello").unwrap();
+        fs::write(root.join("b.txt"), "world").unwrap();
+
+        let service = create_index_service(&tmp);
+        let scanner = FilesystemScanner::new(&service);
+        let stats = scanner.scan_directory(&root).unwrap();
+
+        assert_eq!(stats.files_indexed, 2);
+        assert_eq!(stats.files_reindexed, 0);
+        assert_eq!(stats.files_unchanged, 0);
+    }
+
+    #[test]
+    fn second_indexing_skips_unchanged_files() {
+        let (tmp, root) = setup_test_dir();
+        fs::write(root.join("a.txt"), "hello").unwrap();
+        fs::write(root.join("b.txt"), "world").unwrap();
+
+        let service = create_index_service(&tmp);
+        let scanner = FilesystemScanner::new(&service);
+
+        // First scan — all files are new
+        let stats1 = scanner.scan_directory(&root).unwrap();
+        assert_eq!(stats1.files_indexed, 2);
+        assert_eq!(stats1.files_unchanged, 0);
+
+        // Second scan — files should be skipped as unchanged
+        let stats2 = scanner.scan_directory(&root).unwrap();
+        assert_eq!(stats2.files_indexed, 0);
+        assert_eq!(stats2.files_unchanged, 2);
+    }
+
+    #[test]
+    fn modified_file_is_reindexed() {
+        let (tmp, root) = setup_test_dir();
+        fs::write(root.join("a.txt"), "hello").unwrap();
+
+        let service = create_index_service(&tmp);
+        let scanner = FilesystemScanner::new(&service);
+
+        // First scan
+        let stats1 = scanner.scan_directory(&root).unwrap();
+        assert_eq!(stats1.files_indexed, 1);
+
+        // Modify the file
+        fs::write(root.join("a.txt"), "hello world!").unwrap();
+
+        // Second scan — file should be re-indexed
+        let stats2 = scanner.scan_directory(&root).unwrap();
+        assert_eq!(stats2.files_reindexed, 1);
+        assert_eq!(stats2.files_unchanged, 0);
+    }
+
+    #[test]
+    fn new_file_is_indexed_on_second_scan() {
+        let (tmp, root) = setup_test_dir();
+        fs::write(root.join("a.txt"), "hello").unwrap();
+
+        let service = create_index_service(&tmp);
+        let scanner = FilesystemScanner::new(&service);
+
+        // First scan
+        let stats1 = scanner.scan_directory(&root).unwrap();
+        assert_eq!(stats1.files_indexed, 1);
+
+        // Add a new file
+        fs::write(root.join("b.txt"), "world").unwrap();
+
+        // Second scan — new file should be indexed, old one skipped
+        let stats2 = scanner.scan_directory(&root).unwrap();
+        assert_eq!(stats2.files_indexed, 1); // b.txt is new
+        assert_eq!(stats2.files_unchanged, 1); // a.txt is unchanged
+    }
+
+    #[test]
+    fn parser_error_not_stored_in_metadata() {
+        let (tmp, root) = setup_test_dir();
+        fs::write(root.join("broken.pdf"), b"not a pdf").unwrap();
+
+        let service = create_index_service(&tmp);
+        let scanner = FilesystemScanner::new(&service);
+
+        // First scan — parser error
+        let stats1 = scanner.scan_directory(&root).unwrap();
+        assert_eq!(stats1.parser_errors, 1);
+
+        // Second scan — parser error again because metadata was not stored
+        // (update_document is not called for failed files)
+        let stats2 = scanner.scan_directory(&root).unwrap();
+        assert_eq!(stats2.parser_errors, 1);
     }
 }

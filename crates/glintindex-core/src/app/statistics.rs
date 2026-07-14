@@ -26,15 +26,17 @@ pub struct ApplicationStatistics {
 /// Summary of a single indexing operation.
 ///
 /// Captures the outcome of scanning one or more folders, including
-/// counts of discovered, indexed, skipped, and failed files.
+/// counts of discovered, indexed, re-indexed, skipped, and failed files.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IndexingResult {
     /// Number of directories traversed during the scan.
     pub directories_scanned: u64,
     /// Total number of files encountered.
     pub files_discovered: u64,
-    /// Number of files successfully indexed.
+    /// Number of newly indexed files (no prior metadata).
     pub files_indexed: u64,
+    /// Number of files re-indexed because content changed.
+    pub files_reindexed: u64,
     /// Number of files skipped (unsupported type, ignored, etc.).
     pub files_skipped: u64,
     /// Number of files that failed to index.
@@ -64,10 +66,12 @@ impl ApplicationStatistics {
 
 impl IndexingResult {
     /// Creates a new indexing result from scanner statistics.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         directories_scanned: u64,
         files_discovered: u64,
         files_indexed: u64,
+        files_reindexed: u64,
         files_skipped: u64,
         files_failed: u64,
         parser_errors: u64,
@@ -77,6 +81,7 @@ impl IndexingResult {
             directories_scanned,
             files_discovered,
             files_indexed,
+            files_reindexed,
             files_skipped,
             files_failed,
             parser_errors,
@@ -91,7 +96,8 @@ impl From<crate::scanner::ScannerStatistics> for IndexingResult {
             directories_scanned: stats.directories_scanned,
             files_discovered: stats.files_discovered,
             files_indexed: stats.files_indexed,
-            files_skipped: stats.files_skipped,
+            files_reindexed: stats.files_reindexed,
+            files_skipped: stats.files_unchanged,
             files_failed: stats.files_failed,
             parser_errors: stats.parser_errors,
             parser_panics: stats.parser_panics,
@@ -120,14 +126,15 @@ mod tests {
 
     #[test]
     fn statistics_with_last_indexing_result() {
-        let result = IndexingResult::new(10, 50, 40, 5, 5, 2, 1);
+        let result = IndexingResult::new(10, 50, 40, 5, 5, 2, 1, 0);
         let stats = ApplicationStatistics::new(40, 2).with_last_indexing_result(result);
         let last = stats.last_indexing_result.unwrap();
         assert_eq!(last.files_indexed, 40);
+        assert_eq!(last.files_reindexed, 5);
         assert_eq!(last.files_skipped, 5);
-        assert_eq!(last.files_failed, 5);
-        assert_eq!(last.parser_errors, 2);
-        assert_eq!(last.parser_panics, 1);
+        assert_eq!(last.files_failed, 2);
+        assert_eq!(last.parser_errors, 1);
+        assert_eq!(last.parser_panics, 0);
     }
 
     #[test]
@@ -136,6 +143,8 @@ mod tests {
         scanner_stats.directories_scanned = 5;
         scanner_stats.files_discovered = 20;
         scanner_stats.files_indexed = 15;
+        scanner_stats.files_reindexed = 3;
+        scanner_stats.files_unchanged = 2;
         scanner_stats.files_skipped = 3;
         scanner_stats.files_failed = 2;
         scanner_stats.parser_errors = 1;
@@ -145,7 +154,8 @@ mod tests {
         assert_eq!(result.directories_scanned, 5);
         assert_eq!(result.files_discovered, 20);
         assert_eq!(result.files_indexed, 15);
-        assert_eq!(result.files_skipped, 3);
+        assert_eq!(result.files_reindexed, 3);
+        assert_eq!(result.files_skipped, 2);
         assert_eq!(result.files_failed, 2);
         assert_eq!(result.parser_errors, 1);
         assert_eq!(result.parser_panics, 1);
@@ -153,14 +163,15 @@ mod tests {
 
     #[test]
     fn indexing_result_new() {
-        let result = IndexingResult::new(1, 2, 3, 4, 5, 6, 7);
+        let result = IndexingResult::new(1, 2, 3, 4, 5, 6, 7, 8);
         assert_eq!(result.directories_scanned, 1);
         assert_eq!(result.files_discovered, 2);
         assert_eq!(result.files_indexed, 3);
-        assert_eq!(result.files_skipped, 4);
-        assert_eq!(result.files_failed, 5);
-        assert_eq!(result.parser_errors, 6);
-        assert_eq!(result.parser_panics, 7);
+        assert_eq!(result.files_reindexed, 4);
+        assert_eq!(result.files_skipped, 5);
+        assert_eq!(result.files_failed, 6);
+        assert_eq!(result.parser_errors, 7);
+        assert_eq!(result.parser_panics, 8);
     }
 
     #[test]

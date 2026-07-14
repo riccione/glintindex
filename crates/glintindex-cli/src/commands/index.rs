@@ -80,20 +80,19 @@ pub fn execute(config_path: &str, args: IndexArgs) -> Result<()> {
             reporter.finish_and_clear();
 
             println!("Indexing completed\n");
-            println!("Folders:       1");
-            println!("Files indexed: {}", stats.files_indexed);
+            println!("Folders:            1");
+            println!("Files indexed:      {}", stats.files_indexed);
+            println!("Files re-indexed:   {}", stats.files_reindexed);
+            println!("Files skipped:      {}", stats.files_skipped);
 
-            if stats.files_skipped > 0 {
-                println!("Files skipped: {}", stats.files_skipped);
-            }
             if stats.files_failed > 0 {
-                println!("Files failed:  {}", stats.files_failed);
+                println!("Files failed:      {}", stats.files_failed);
             }
             if stats.parser_errors > 0 {
-                println!("Parser errors: {}", stats.parser_errors);
+                println!("Parser errors:      {}", stats.parser_errors);
             }
             if stats.parser_panics > 0 {
-                println!("Parser panics: {}", stats.parser_panics);
+                println!("Parser panics:      {}", stats.parser_panics);
             }
         }
         None => {
@@ -124,26 +123,26 @@ pub fn execute(config_path: &str, args: IndexArgs) -> Result<()> {
             reporter.finish_and_clear();
 
             let total_indexed: u64 = results.iter().map(|s| s.files_indexed).sum();
+            let total_reindexed: u64 = results.iter().map(|s| s.files_reindexed).sum();
             let total_skipped: u64 = results.iter().map(|s| s.files_skipped).sum();
             let total_failed: u64 = results.iter().map(|s| s.files_failed).sum();
             let total_errors: u64 = results.iter().map(|s| s.parser_errors).sum();
             let total_panics: u64 = results.iter().map(|s| s.parser_panics).sum();
 
             println!("Indexing completed\n");
-            println!("Folders:       {}", enabled.len());
-            println!("Files indexed: {}", total_indexed);
+            println!("Folders:            {}", enabled.len());
+            println!("Files indexed:      {}", total_indexed);
+            println!("Files re-indexed:   {}", total_reindexed);
+            println!("Files skipped:      {}", total_skipped);
 
-            if total_skipped > 0 {
-                println!("Files skipped: {}", total_skipped);
-            }
             if total_failed > 0 {
-                println!("Files failed:  {}", total_failed);
+                println!("Files failed:      {}", total_failed);
             }
             if total_errors > 0 {
-                println!("Parser errors: {}", total_errors);
+                println!("Parser errors:      {}", total_errors);
             }
             if total_panics > 0 {
-                println!("Parser panics: {}", total_panics);
+                println!("Parser panics:      {}", total_panics);
             }
         }
     }
