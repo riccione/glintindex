@@ -22,7 +22,7 @@ glintindex/
 ├── crates/
 │   ├── glintindex-core    # Core library: indexing, scanning, search, config
 │   ├── glintindex-cli     # Command-line interface
-│   └── glintindex-gui     # GUI frontend (Iced)
+│   └── glintindex-gui     # GUI frontend (GTK4)
 ```
 
 | Crate | Description |
@@ -53,7 +53,7 @@ Scripts: `.sh`, `.sql`
 | `thiserror` | 2.0.18 | Error handling |
 | `anyhow` | 1.0.103 | Error context (CLI) |
 | `tracing` | 0.1.44 | Structured logging |
-| `iced` | 0.14.0 | GUI framework |
+| `gtk4` | 0.11.4 | GUI framework |
 | `notify` | 8.2.0 | Filesystem watching (planned) |
 
 ## Requirements
@@ -66,7 +66,7 @@ Scripts: `.sh`, `.sql`
 ### From source
 
 ```bash
-git clone https://github.com/zer0/dev/rust/glintindex.git
+git clone https://github.com/riccione/glintindex.git
 cd glintindex
 cargo build --release
 ```
@@ -78,6 +78,51 @@ The binary will be at `target/release/glintindex`.
 ```bash
 cargo install --path crates/glintindex-cli
 ```
+
+### Pre-built releases
+
+Download pre-built binaries from [GitHub Releases](https://github.com/riccione/glintindex/releases).
+
+#### Linux (.deb)
+
+```bash
+# Download the .deb package for your version
+sudo dpkg -i glintindex_<version>_amd64.deb
+
+# Fix any missing dependencies
+sudo apt-get install -f
+```
+
+**Requirements:** GTK4 must be installed on your system.
+
+```bash
+# Debian/Ubuntu
+sudo apt-get install libgtk-4-0
+
+# Fedora
+sudo dnf install gtk4
+
+# Arch
+sudo pacman -S gtk4
+```
+
+#### Windows
+
+1. Download `glintindex-windows-x64-<version>.zip`
+2. Extract the ZIP to a directory of your choice
+3. Run `glintindex-gui.exe`
+
+**Note:** GTK4 runtime libraries are bundled in the ZIP.
+
+#### macOS
+
+1. Download the appropriate ZIP for your architecture:
+   - `glintindex-macos-<version>.zip` (Apple Silicon / arm64)
+   - `glintindex-macos-x86-64-<version>.zip` (Intel / x86_64)
+2. Extract and move `GlintIndex.app` to your Applications folder
+3. Right-click and select "Open" the first time (unsigned app warning)
+
+**Note:** The `.app` bundle is self-contained with GTK4 libraries included.
 
 ## Usage
 
@@ -227,6 +272,27 @@ Use [Conventional Commits](https://www.conventionalcommits.org/):
 - `refactor(scope):` code restructuring
 
 Scope is typically `core`, `cli`, or `gui`.
+
+## Known Limitations (MVP)
+
+- **macOS:** The `.app` bundle is self-contained but not code-signed or notarized. Users will see a Gatekeeper warning on first launch.
+- **macOS:** No DMG disk image distribution. ZIP is provided for the MVP.
+- **macOS:** No custom application icon yet (uses default app icon).
+- **macOS x86_64:** Built via cross-compilation. Some edge cases with GTK4 libraries may exist.
+- **Windows:** No MSI or NSIS installer. ZIP distribution only.
+- **Windows:** GTK4 runtime DLLs are bundled, but some rare transitive dependencies may be missing.
+- **Linux:** Requires GTK4 system libraries to be installed (`libgtk-4-0` or equivalent).
+
+## Release
+
+Releases are automated via GitHub Actions. When a tag matching `v*` is pushed, the workflow:
+
+1. Runs format, lint, and test checks
+2. Builds release binaries for Linux, Windows, and macOS
+3. Packages artifacts (.deb, .zip, source tarball)
+4. Creates a GitHub Release with generated release notes
+
+See [`.github/workflows/release.yml`](.github/workflows/release.yml) for details.
 
 ## License
 
