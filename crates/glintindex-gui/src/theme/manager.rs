@@ -90,6 +90,16 @@ impl ThemeManager {
     /// Combines the theme stylesheet with font size rules into a single
     /// CSS payload and loads it into the existing provider.
     pub fn apply(&self, theme: Theme, font_size: u32) {
+        // 1. Force GTK's built-in components (like titlebars/searchbars) to prefer dark mode
+        if let Some(settings) = gtk::Settings::default() {
+            let prefer_dark = match theme {
+                Theme::Dark => true,
+                Theme::Light => false,
+                Theme::System => is_dark_mode(),
+            };
+            settings.set_gtk_application_prefer_dark_theme(prefer_dark);
+        }
+
         let css = generate_css(theme_css(theme), font_size);
         self.provider.load_from_data(&css);
     }
