@@ -104,9 +104,18 @@ impl GlintIndexWindow {
         action_bar.append(&open_folder_btn);
         action_bar.append(&copy_path_btn);
 
-        // Preview pane: text view + action bar
+        // Create the scroll area wrapping ONLY the preview widget
+        let preview_scroll = ScrolledWindow::builder()
+            .child(&preview_widget)
+            .vscrollbar_policy(PolicyType::Automatic)
+            .hscrollbar_policy(PolicyType::Automatic)
+            .vexpand(true) // Forces scroll view to fill available height
+            .hexpand(true) // Ensures horizontal stretch is resolved
+            .build();
+
+        // Preview pane: Scrollable preview (top) + static action bar (bottom)
         let preview_pane = GtkBox::new(Orientation::Vertical, 0);
-        preview_pane.append(&preview_widget);
+        preview_pane.append(&preview_scroll);
         preview_pane.append(&action_bar);
 
         // Connect result selection to preview loading and button state updates
@@ -161,12 +170,6 @@ impl GlintIndexWindow {
             .hscrollbar_policy(PolicyType::Never)
             .build();
 
-        let preview_scroll = ScrolledWindow::builder()
-            .child(&preview_pane)
-            .vscrollbar_policy(PolicyType::Automatic)
-            .hscrollbar_policy(PolicyType::Automatic)
-            .build();
-
         // Paned split view
         let initial_width = 1000;
         let initial_ratio = {
@@ -178,7 +181,7 @@ impl GlintIndexWindow {
         let paned = Paned::builder()
             .orientation(Orientation::Horizontal)
             .start_child(&results_scroll)
-            .end_child(&preview_scroll)
+            .end_child(&preview_pane)
             .position(initial_position)
             .build();
 
