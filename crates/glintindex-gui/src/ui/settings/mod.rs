@@ -4,6 +4,7 @@
 //! multiple content pages for managing application configuration.
 
 pub mod about;
+pub mod appearance;
 pub mod general;
 pub mod ignored_folders;
 pub mod index_page;
@@ -50,6 +51,7 @@ pub fn show_settings(parent: &impl IsA<Window>, state: &Rc<RefCell<WindowState>>
 
     let page_names = vec![
         "general".to_string(),
+        "appearance".to_string(),
         "indexed_folders".to_string(),
         "ignored_folders".to_string(),
         "index".to_string(),
@@ -58,19 +60,22 @@ pub fn show_settings(parent: &impl IsA<Window>, state: &Rc<RefCell<WindowState>>
 
     let display_names = [
         "General",
+        "Appearance",
         "Indexed Folders",
         "Ignored Folders",
         "Index",
         "About",
     ];
 
-    let general_page = general::build(state, &settings_window);
+    let general_page = general::build(state);
+    let appearance_page = appearance::build(state, &settings_window);
     let indexed_folders_page = indexed_folders::build(state, &settings_window);
     let ignored_folders_page = ignored_folders::build(state);
     let index_page_widget = index_page::build(state);
     let about_page = about::build();
 
     pages.add_named(&general_page, Some("general"));
+    pages.add_named(&appearance_page, Some("appearance"));
     pages.add_named(&indexed_folders_page, Some("indexed_folders"));
     pages.add_named(&ignored_folders_page, Some("ignored_folders"));
     pages.add_named(&index_page_widget, Some("index"));

@@ -645,6 +645,17 @@ impl ApplicationService {
         self.save_config()?;
         Ok(())
     }
+
+    /// Updates the application theme and persists the change.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the configuration cannot be saved.
+    pub fn set_theme(&mut self, theme: crate::config::Theme) -> Result<()> {
+        self.config.theme = theme;
+        self.save_config()?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]

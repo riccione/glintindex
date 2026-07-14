@@ -158,7 +158,7 @@ impl GlintIndexWindow {
             let st = state.borrow();
             let font_size = st.service.config().clamped_font_size();
             let window_ref: &gtk::Window = window.upcast_ref();
-            ui::settings::general::apply_font_size(window_ref, font_size);
+            ui::settings::appearance::apply_font_size(window_ref, font_size);
         }
 
         // Connect settings button to open/close settings window (toggle)
