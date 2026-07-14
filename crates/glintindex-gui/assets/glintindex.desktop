@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=GlintIndex
+Comment=A fast, local desktop search engine
+Exec=glintindex-gui
+Icon=glintindex
+Terminal=false
+Categories=Utility;System;
