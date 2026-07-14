@@ -138,7 +138,7 @@ impl<'a> FilesystemScanner<'a> {
 
             match self.process_file(path) {
                 Ok(doc) => {
-                    if let Err(err) = self.index_service.add_document(&doc) {
+                    if let Err(err) = self.index_service.update_document(&doc) {
                         tracing::warn!("failed to index {}: {err}", path.display());
                         stats.inc_files_failed();
                         self.reporter.on_file_failed(path, &err.to_string());
