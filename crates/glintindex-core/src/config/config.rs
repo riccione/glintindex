@@ -42,11 +42,25 @@ pub struct AppConfig {
     /// Valid range: 8–32. Default: 12.
     #[serde(default = "default_font_size")]
     pub font_size: u32,
+    /// Split ratio for the main window's Results/Preview panes.
+    ///
+    /// Stored as a percentage (0–100) to avoid f32 precision issues.
+    /// A value of 50 means equal widths. Range: 15–85.
+    /// Default: 50.
+    #[serde(default = "default_main_split_ratio")]
+    pub main_split_ratio: u32,
 }
 
 /// Returns the default font size for deserialization.
 fn default_font_size() -> u32 {
     12
+}
+
+/// Returns the default main split ratio for deserialization.
+///
+/// Returns 50 (representing 0.50 as a percentage).
+fn default_main_split_ratio() -> u32 {
+    50
 }
 
 impl Default for AppConfig {
@@ -59,6 +73,7 @@ impl Default for AppConfig {
             max_preview_size: defaults::default_max_preview_size(),
             recent_searches: Vec::new(),
             font_size: default_font_size(),
+            main_split_ratio: default_main_split_ratio(),
         }
     }
 }
@@ -97,6 +112,11 @@ impl AppConfig {
     /// Returns a clamped font size within the valid range (8–32).
     pub fn clamped_font_size(&self) -> u32 {
         self.font_size.clamp(8, 32)
+    }
+
+    /// Returns the main split ratio as a float, clamped to [0.15, 0.85].
+    pub fn main_split_ratio_f32(&self) -> f32 {
+        (self.main_split_ratio as f32 / 100.0).clamp(0.15, 0.85)
     }
 }
 
