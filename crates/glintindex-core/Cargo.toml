@@ -27,6 +27,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tantivy.workspace = true
 walkdir.workspace = true
 syntect.workspace = true
+rusqlite.workspace = true
 
 # Document parser dependencies
 pdf-extract = { workspace = true, optional = true }

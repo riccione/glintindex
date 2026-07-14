@@ -3,6 +3,7 @@ pub mod config;
 pub mod error;
 pub mod index;
 pub mod logging;
+pub mod metadata;
 pub mod model;
 pub mod parser;
 pub mod preview;

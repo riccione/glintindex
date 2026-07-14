@@ -32,6 +32,10 @@ pub enum GlintIndexError {
     /// An error that does not fit the other categories.
     #[error("{0}")]
     Other(String),
+
+    /// A metadata database error occurred.
+    #[error("metadata error: {0}")]
+    Metadata(String),
 }
 
 /// A convenience `Result` type alias for glintindex-core.
