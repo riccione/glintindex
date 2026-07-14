@@ -13,12 +13,12 @@ path = "src/main.rs"
 
 [dependencies]
 glintindex-core.workspace = true
-iced = { workspace = true, features = ["tokio"] }
-tokio.workspace = true
+gtk = { package = "gtk4", version = "=0.11.4" }
 open.workspace = true
 log.workspace = true
 env_logger.workspace = true
-rfd.workspace = true
+anyhow.workspace = true
+tokio.workspace = true
 
 [dev-dependencies]
 tempfile = "3"
