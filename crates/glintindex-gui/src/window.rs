@@ -202,7 +202,7 @@ impl GlintIndexWindow {
 
         // Main vertical layout
         let content = GtkBox::new(Orientation::Vertical, 4);
-        content.append(&header);
+        //content.append(&header);
         content.append(&paned);
         content.append(&status_bar);
 
@@ -214,7 +214,8 @@ impl GlintIndexWindow {
             .default_height(700)
             .child(&content)
             .build();
-
+        // Set the header bar strictly as the Window's titlebar
+        window.set_titlebar(Some(&header));
         // Wire up action button click handlers (after window creation for clipboard access)
         {
             let state_clone = state.clone();
@@ -285,6 +286,12 @@ impl GlintIndexWindow {
 
     /// Presents the window to the user.
     pub fn present(&self) {
+        // Re-trigger style update right before presenting to guarantee repaint
+        let st = self.state.borrow();
+        let theme = st.service.config().theme;
+        let font_size = st.service.config().clamped_font_size();
+        st.theme_manager.apply(theme, font_size);
+
         self.window.present();
     }
 }
