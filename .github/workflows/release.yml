@@ -114,22 +114,14 @@ jobs:
           set -euxo pipefail
 
           APP=target/release/glintindex-gui.exe
-
           mkdir -p dist
-
           cp "$APP" dist/
 
           [ -f LICENSE ] && cp LICENSE dist/
           [ -f README.md ] && cp README.md dist/
 
           echo "Collecting runtime DLLs..."
-
-          ntldd -R "$APP" \
-            | awk '/=> \/mingw64\/bin\// {print $3}' \
-            | sort -u \
-            | while read dll; do
-                cp "$dll" dist/
-              done
+          ntldd -R "$APP" | awk '/=> \/mingw64\/bin\// {print $3}' | sort -u | xargs -I {} cp "{}" dist/
 
           echo "Final contents:"
           ls -lh dist
@@ -172,7 +164,7 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           toolchain: stable
-          targets: ${{ matrix.target }}
+          target: ${{ matrix.target }}
 
       # ARM64 GTK4 Installation
       - name: Install GTK4 (arm64)
