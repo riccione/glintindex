@@ -58,8 +58,17 @@ jobs:
       # Quick cargo-deb install using cargo-binstall instead of compiling from scratch
       - name: Install cargo-deb
         run: |
-          curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash
-          cargo binstall -y cargo-deb
+          # Ensure cargo bin directory is in the path for this and future steps
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+          export PATH="$HOME/.cargo/bin:$PATH"
+
+          # Only install if it's not already there (prevents errors or slow installs)
+          if ! command -v cargo-deb &> /dev/null; then
+            curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash
+            cargo binstall -y cargo-deb
+          else
+            echo "cargo-deb is already restored from cache and ready to use!"
+          fi
 
       - name: Build .deb package
         run: cargo deb -p glintindex-gui
@@ -106,9 +115,8 @@ jobs:
       - name: Build release binary
         shell: msys2 {0}
         env:
-          # Tell MSYS2's environment specifically to expose this variable to native Windows programs
-          MSYS2_ENV_CONV_EXCL: LIB
-          LIB: C:\msys64\mingw64\lib
+          # Use RUSTFLAGS to tell MSVC exactly where to find MSYS2's libraries
+          RUSTFLAGS: "-L C:\\msys64\\mingw64\\lib"
         run: cargo build --release -p glintindex-gui
 
       - name: Bundle DLLs and create ZIP
