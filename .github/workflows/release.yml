@@ -106,7 +106,8 @@ jobs:
       - name: Build release binary
         shell: msys2 {0}
         env:
-          # Tell MSVC where to find the .lib files installed by MSYS2
+          # Tell MSYS2's environment specifically to expose this variable to native Windows programs
+          MSYS2_ENV_CONV_EXCL: LIB
           LIB: C:\msys64\mingw64\lib
         run: cargo build --release -p glintindex-gui
 
