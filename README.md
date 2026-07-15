@@ -247,7 +247,7 @@ glintindex-cli config
 The GUI application provides a graphical interface for searching and managing your indexed files.
 
 ```bash
-glintindex-gui
+glintindex
 ```
 
 ### Features
