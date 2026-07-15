@@ -84,17 +84,12 @@ jobs:
     name: Build Windows
     needs: prepare
     runs-on: windows-latest
+
     env:
       VERSION: ${{ needs.prepare.outputs.version || '0.0.0-test' }}
 
     steps:
       - uses: actions/checkout@v7
-
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: x86_64-pc-windows-gnu
-
-      - uses: Swatinem/rust-cache@v2
 
       - uses: msys2/setup-msys2@v2
         with:
@@ -102,70 +97,67 @@ jobs:
           update: true
           path-type: inherit
           install: >-
+            git
             mingw-w64-x86_64-toolchain
             mingw-w64-x86_64-rust
+            mingw-w64-x86_64-cargo
             mingw-w64-x86_64-pkg-config
             mingw-w64-x86_64-gtk4
-            mingw-w64-x86_64-gcc
             p7zip
 
-      - name: Build release binary
+      - name: Show toolchain
+        shell: msys2 {0}
+        run: |
+          which rustc
+          which cargo
+          rustc --version
+          cargo --version
+          gcc --version
+          pkg-config --version
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            . -> target
+
+      - name: Build
         shell: msys2 {0}
         env:
           PKG_CONFIG_PATH: /mingw64/lib/pkgconfig
         run: |
+          set -euxo pipefail
+
           cargo build \
             --release \
-            --target x86_64-pc-windows-gnu \
             -p glintindex-gui
 
-      - name: Bundle GTK runtime
+      - name: Create distribution
         shell: msys2 {0}
         run: |
-          mkdir -p dist
+          set -euxo pipefail
 
-          cp target/x86_64-pc-windows-gnu/release/glintindex-gui.exe dist/
+          mkdir dist
+
+          cp target/release/glintindex-gui.exe dist/
 
           [ -f LICENSE ] && cp LICENSE dist/
           [ -f README.md ] && cp README.md dist/
 
-          echo "Collecting DLLs..."
+          # Copy every runtime DLL from the MSYS2 runtime.
+          cp /mingw64/bin/*.dll dist/
 
-          ldd target/x86_64-pc-windows-gnu/release/glintindex-gui.exe \
-            | grep '/mingw64/bin/' \
-            | awk '{print $3}' \
-            | while read dll; do
-                cp "$dll" dist/
-              done
+          # Optional: reduce size.
+          rm -f dist/libLLVM*.dll || true
+          rm -f dist/clang*.dll || true
 
-          changed=true
-          while $changed; do
-            changed=false
-
-            for dll in dist/*.dll; do
-              [ -f "$dll" ] || continue
-
-              ldd "$dll" 2>/dev/null \
-                | grep '/mingw64/bin/' \
-                | awk '{print $3}' \
-                | while read dep; do
-
-                    name=$(basename "$dep")
-
-                    if [ ! -f "dist/$name" ]; then
-                        cp "$dep" "dist/"
-                        changed=true
-                    fi
-                  done
-            done
-          done
-
-          echo "DLLs bundled:"
-          ls dist
+          echo "Distribution contents:"
+          ls -lh dist
 
       - name: Create ZIP
         shell: msys2 {0}
         run: |
+          set -euxo pipefail
+
           cd dist
           7z a ../glintindex-windows-x64-${VERSION}.zip *
 
