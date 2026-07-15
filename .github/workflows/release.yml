@@ -12,34 +12,13 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  TAG_NAME: ${{ github.ref_type == 'tag' && github.ref_name || github.event.inputs.tag || 'v0.0.0-test' }}
+  VERSION: ${{ replace(github.ref_type == 'tag' && github.ref_name || github.event.inputs.tag || 'v0.0.0-test', 'v', '') }}
 
 jobs:
-  # Single source of truth for the Release Version
-  prepare:
-    name: Prepare Version
-    runs-on: ubuntu-latest
-    outputs:
-      version: ${{ steps.get_version.outputs.version }}
-      tag_name: ${{ steps.get_version.outputs.tag_name }}
-    steps:
-      - id: get_version
-        run: |
-          if [ "${{ github.ref_type }}" = "tag" ]; then
-            TAG_NAME="${{ github.ref_name }}"
-            VERSION="${TAG_NAME#v}"
-          else
-            TAG_NAME="${{ github.event.inputs.tag }}"
-            VERSION="${TAG_NAME#v}"
-          fi
-          echo "version=${VERSION}" >> $GITHUB_OUTPUT
-          echo "tag_name=${TAG_NAME}" >> $GITHUB_OUTPUT
-
   build-linux:
     name: Build Linux
-    needs: prepare
     runs-on: ubuntu-latest
-    env:
-      VERSION: ${{ needs.prepare.outputs.version || '0.0.0-test' }}
     steps:
       - uses: actions/checkout@v7
 
@@ -72,7 +51,7 @@ jobs:
             exit 1
           fi
           echo "Found deb at: $DEB_FILE"
-          cp "$DEB_FILE" "./glintindex_${VERSION}_amd64.deb"
+          cp "$DEB_FILE" "./glintindex_${{ env.VERSION }}_amd64.deb"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7
@@ -84,10 +63,6 @@ jobs:
     name: Build Windows
     needs: prepare
     runs-on: windows-latest
-
-    env:
-      VERSION: ${{ needs.prepare.outputs.version || '0.0.0-test' }}
-
     steps:
       - uses: actions/checkout@v7
 
@@ -164,7 +139,7 @@ jobs:
           set -euxo pipefail
 
           cd dist
-          7z a ../glintindex-windows-x64-${VERSION}.zip *
+          7z a ../glintindex-windows-x64-${{ env.VERSION }}.zip *
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7
@@ -187,8 +162,6 @@ jobs:
             target: x86_64-apple-darwin
             homebrew_prefix: /usr/local
             artifact_name: macos-x86-64
-    env:
-      VERSION: ${{ needs.prepare.outputs.version || '0.0.0-test' }}
     steps:
       - uses: actions/checkout@v7
 
@@ -339,9 +312,9 @@ jobs:
             <key>CFBundleIdentifier</key>
             <string>com.riccione.glintindex</string>
             <key>CFBundleVersion</key>
-            <string>${VERSION}</string>
+            <string>${{ env.VERSION }}</string>
             <key>CFBundleShortVersionString</key>
-            <string>${VERSION}</string>
+            <string>${{ env.VERSION }}</string>
             <key>CFBundleExecutable</key>
             <string>launcher</string>
             <key>CFBundlePackageType</key>
@@ -355,7 +328,7 @@ jobs:
           PLIST_EOF
 
           ditto -c -k --sequesterRsrc --keepParent "${APP}" \
-            "glintindex-${{ matrix.artifact_name }}-${VERSION}.zip"
+            "glintindex-${{ matrix.artifact_name }}-${{ env.VERSION }}.zip"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7
@@ -365,10 +338,7 @@ jobs:
 
   build-source:
     name: Build Source Archive
-    needs: prepare
     runs-on: ubuntu-latest
-    env:
-      VERSION: ${{ needs.prepare.outputs.version || '0.0.0-test' }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -377,7 +347,7 @@ jobs:
       - name: Create source archive
         run: |
           git archive --format=tar.gz --prefix="glintindex-${VERSION}/" \
-            -o "glintindex-source-${VERSION}.tar.gz" HEAD
+            -o "glintindex-source-${{ env.VERSION }}.tar.gz" HEAD
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7
@@ -387,7 +357,7 @@ jobs:
 
   release:
     name: Create Release
-    needs: [prepare, build-linux, build-windows, build-macos, build-source]
+    needs: [build-linux, build-windows, build-macos, build-source]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -404,7 +374,7 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: ${{ needs.prepare.outputs.tag_name || 'v0.0.0-test' }}
+          tag_name: ${{ env.TAG_NAME }}
           generate_release_notes: true
           files: |
             artifacts/glintindex_*_amd64.deb
