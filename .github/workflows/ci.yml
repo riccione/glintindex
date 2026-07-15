@@ -8,14 +8,14 @@ on:
       - '**.md'
       - 'LICENSE*'
       - '.gitignore'
-       - '.github/workflows/release.yml'
+      - '.github/workflows/release.yml'
   pull_request:
     branches: [main, dev]
     paths-ignore:
       - '**.md'
       - 'LICENSE*'
       - '.gitignore'
-       - '.github/workflows/release.yml'
+      - '.github/workflows/release.yml'
 
 jobs:
   ci:
