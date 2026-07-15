@@ -12,54 +12,35 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  TAG_NAME: ${{ github.ref_type == 'tag' && github.ref_name || github.event.inputs.tag || 'v0.0.0-test' }}
 
 jobs:
-  # Single source of truth for the Release Version
-  prepare:
-    name: Prepare Version
-    runs-on: ubuntu-latest
-    outputs:
-      version: ${{ steps.get_version.outputs.version }}
-      tag_name: ${{ steps.get_version.outputs.tag_name }}
-    steps:
-      - id: get_version
-        run: |
-          if [ "${{ github.ref_type }}" = "tag" ]; then
-            TAG_NAME="${{ github.ref_name }}"
-            VERSION="${TAG_NAME#v}"
-          else
-            TAG_NAME="${{ github.event.inputs.tag }}"
-            VERSION="${TAG_NAME#v}"
-          fi
-          echo "version=${VERSION}" >> $GITHUB_OUTPUT
-          echo "tag_name=${TAG_NAME}" >> $GITHUB_OUTPUT
-
   build-linux:
     name: Build Linux
-    needs: prepare
     runs-on: ubuntu-latest
-    env:
-      VERSION: ${{ needs.prepare.outputs.version || '0.0.0-test' }}
     steps:
       - uses: actions/checkout@v7
 
-      - uses: dtolnay/rust-toolchain@stable
+      - name: Set Version
+        shell: bash
+        run: echo "VERSION=${TAG_NAME#v}" >> $GITHUB_ENV
+
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
 
       - name: Install system dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y pkg-config libgtk-4-dev build-essential
 
-      - uses: Swatinem/rust-cache@v2
-
       - name: Build release binary
         run: cargo build --release -p glintindex-gui
 
-      # Quick cargo-deb install using cargo-binstall instead of compiling from scratch
       - name: Install cargo-deb
-        run: |
-          curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install.sh | sh
-          cargo binstall -y cargo-deb
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deb
 
       - name: Build .deb package
         run: cargo deb -p glintindex-gui
@@ -73,7 +54,7 @@ jobs:
             exit 1
           fi
           echo "Found deb at: $DEB_FILE"
-          cp "$DEB_FILE" "./glintindex_${VERSION}_amd64.deb"
+          cp "$DEB_FILE" "./glintindex_${{ env.VERSION }}_amd64.deb"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7
@@ -83,16 +64,13 @@ jobs:
 
   build-windows:
     name: Build Windows
-    needs: prepare
     runs-on: windows-latest
-    env:
-      VERSION: ${{ needs.prepare.outputs.version || '0.0.0-test' }}
     steps:
       - uses: actions/checkout@v7
 
-      - uses: dtolnay/rust-toolchain@stable
-
-      - uses: Swatinem/rust-cache@v2
+      - name: Set Version
+        shell: bash
+        run: echo "VERSION=${TAG_NAME#v}" >> $GITHUB_ENV
 
       - uses: msys2/setup-msys2@v2
         with:
@@ -100,37 +78,61 @@ jobs:
           update: true
           path-type: inherit
           install: >-
+            git
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-rust
+            mingw-w64-x86_64-pkg-config
             mingw-w64-x86_64-gtk4
-            mingw-w64-x86_64-toolchain
+            mingw-w64-x86_64-tools
+            mingw-w64-x86_64-ntldd
+            p7zip
 
-      - name: Build release binary
-        shell: msys2 {0}
-        run: cargo build --release -p glintindex-gui
-
-      - name: Bundle DLLs and create ZIP
+      - name: Show toolchain
         shell: msys2 {0}
         run: |
+          which rustc
+          which cargo
+          rustc --version
+          cargo --version
+          gcc --version
+          pkg-config --version
+
+      - name: Build
+        shell: msys2 {0}
+        env:
+          PKG_CONFIG_PATH: /mingw64/lib/pkgconfig
+        run: |
+          set -euxo pipefail
+
+          cargo build \
+            --release \
+            -p glintindex-gui
+
+      - name: Create distribution
+        shell: msys2 {0}
+        run: |
+          set -euxo pipefail
+
+          APP=target/release/glintindex-gui.exe
           mkdir -p dist
-          cp target/release/glintindex-gui.exe dist/
-          cp LICENSE dist/ 2>/dev/null || true
-          cp README.md dist/ 2>/dev/null || true
+          cp "$APP" dist/
 
-          # Find all MinGW DLL dependencies
-          ldd target/release/glintindex-gui.exe | grep '/mingw64/bin/' | awk '{print $3}' | while read dll; do
-            cp "$dll" dist/ 2>/dev/null || true
-          done
+          [ -f LICENSE ] && cp LICENSE dist/
+          [ -f README.md ] && cp README.md dist/
 
-          # Find transitive DLL dependencies
-          for dll in dist/*.dll; do
-            [ -f "$dll" ] || continue
-            ldd "$dll" 2>/dev/null | grep '/mingw64/bin/' | awk '{print $3}' | while read dep; do
-              name=$(basename "$dep")
-              [ -f "dist/$name" ] || cp "$dep" dist/ 2>/dev/null || true
-            done
-          done
+          echo "Collecting runtime DLLs..."
+          ntldd -R "$APP" | awk '/=> \/mingw64\/bin\// {print $3}' | sort -u | xargs -I {} cp "{}" dist/
 
-          # Create ZIP using environment variable passed from GHA
-          7z a "glintindex-windows-x64-${VERSION}.zip" ./dist/*
+          echo "Final contents:"
+          ls -lh dist
+
+      - name: Create ZIP
+        shell: msys2 {0}
+        run: |
+          set -euxo pipefail
+
+          cd dist
+          7z a ../glintindex-windows-x64-${{ env.VERSION }}.zip *
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7
@@ -140,7 +142,6 @@ jobs:
 
   build-macos:
     name: Build macOS (${{ matrix.arch }})
-    needs: prepare
     runs-on: macos-latest
     strategy:
       matrix:
@@ -153,22 +154,23 @@ jobs:
             target: x86_64-apple-darwin
             homebrew_prefix: /usr/local
             artifact_name: macos-x86-64
-    env:
-      VERSION: ${{ needs.prepare.outputs.version || '0.0.0-test' }}
     steps:
       - uses: actions/checkout@v7
 
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
+      - name: Set Version
+        shell: bash
+        run: echo "VERSION=${TAG_NAME#v}" >> $GITHUB_ENV
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
-          key: ${{ matrix.arch }}
+          toolchain: stable
+          target: ${{ matrix.target }}
 
       # ARM64 GTK4 Installation
       - name: Install GTK4 (arm64)
         if: matrix.arch == 'arm64'
+        env:
+          HOMEBREW_NO_REQUIRE_TAP_TRUST: 1
         run: brew install gtk4 pkg-config
 
       # Cleaned up and working Rosetta / x86_64 GTK4 Installation
@@ -181,6 +183,8 @@ jobs:
           echo "PKG_CONFIG_PATH=/usr/local/lib/pkgconfig" >> $GITHUB_ENV
 
       - name: Build release binary
+        env:
+          PKG_CONFIG_ALLOW_CROSS: 1
         run: cargo build --release --target ${{ matrix.target }}
 
       - name: Create .app bundle
@@ -301,9 +305,9 @@ jobs:
             <key>CFBundleIdentifier</key>
             <string>com.riccione.glintindex</string>
             <key>CFBundleVersion</key>
-            <string>${VERSION}</string>
+            <string>${{ env.VERSION }}</string>
             <key>CFBundleShortVersionString</key>
-            <string>${VERSION}</string>
+            <string>${{ env.VERSION }}</string>
             <key>CFBundleExecutable</key>
             <string>launcher</string>
             <key>CFBundlePackageType</key>
@@ -317,7 +321,7 @@ jobs:
           PLIST_EOF
 
           ditto -c -k --sequesterRsrc --keepParent "${APP}" \
-            "glintindex-${{ matrix.artifact_name }}-${VERSION}.zip"
+            "glintindex-${{ matrix.artifact_name }}-${{ env.VERSION }}.zip"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7
@@ -327,19 +331,20 @@ jobs:
 
   build-source:
     name: Build Source Archive
-    needs: prepare
     runs-on: ubuntu-latest
-    env:
-      VERSION: ${{ needs.prepare.outputs.version || '0.0.0-test' }}
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
+      - name: Set Version
+        shell: bash
+        run: echo "VERSION=${TAG_NAME#v}" >> $GITHUB_ENV
+
       - name: Create source archive
         run: |
-          git archive --format=tar.gz --prefix="glintindex-${VERSION}/" \
-            -o "glintindex-source-${VERSION}.tar.gz" HEAD
+          git archive --format=tar.gz --prefix="glintindex-${{ env.VERSION }}/" \
+            -o "glintindex-source-${{ env.VERSION }}.tar.gz" HEAD
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7
@@ -349,7 +354,7 @@ jobs:
 
   release:
     name: Create Release
-    needs: [prepare, build-linux, build-windows, build-macos, build-source]
+    needs: [build-linux, build-windows, build-macos, build-source]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -364,9 +369,9 @@ jobs:
         run: ls -la artifacts/
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
-          tag_name: ${{ needs.prepare.outputs.tag_name }}
+          tag_name: ${{ env.TAG_NAME }}
           generate_release_notes: true
           files: |
             artifacts/glintindex_*_amd64.deb
