@@ -86,10 +86,13 @@ jobs:
     runs-on: windows-latest
     env:
       VERSION: ${{ needs.prepare.outputs.version || '0.0.0-test' }}
+
     steps:
       - uses: actions/checkout@v7
 
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-gnu
 
       - uses: Swatinem/rust-cache@v2
 
@@ -99,40 +102,72 @@ jobs:
           update: true
           path-type: inherit
           install: >-
-            mingw-w64-x86_64-gtk4
             mingw-w64-x86_64-toolchain
+            mingw-w64-x86_64-rust
+            mingw-w64-x86_64-pkg-config
+            mingw-w64-x86_64-gtk4
+            mingw-w64-x86_64-gcc
+            p7zip
 
       - name: Build release binary
         shell: msys2 {0}
         env:
-          # Use RUSTFLAGS to tell MSVC exactly where to find MSYS2's libraries
-          RUSTFLAGS: "-L C:\\msys64\\mingw64\\lib"
-        run: cargo build --release -p glintindex-gui
+          PKG_CONFIG_PATH: /mingw64/lib/pkgconfig
+        run: |
+          cargo build \
+            --release \
+            --target x86_64-pc-windows-gnu \
+            -p glintindex-gui
 
-      - name: Bundle DLLs and create ZIP
+      - name: Bundle GTK runtime
         shell: msys2 {0}
         run: |
           mkdir -p dist
-          cp target/release/glintindex-gui.exe dist/
-          cp LICENSE dist/ 2>/dev/null || true
-          cp README.md dist/ 2>/dev/null || true
 
-          # Find all MinGW DLL dependencies
-          ldd target/release/glintindex-gui.exe | grep '/mingw64/bin/' | awk '{print $3}' | while read dll; do
-            cp "$dll" dist/ 2>/dev/null || true
-          done
+          cp target/x86_64-pc-windows-gnu/release/glintindex-gui.exe dist/
 
-          # Find transitive DLL dependencies
-          for dll in dist/*.dll; do
-            [ -f "$dll" ] || continue
-            ldd "$dll" 2>/dev/null | grep '/mingw64/bin/' | awk '{print $3}' | while read dep; do
-              name=$(basename "$dep")
-              [ -f "dist/$name" ] || cp "$dep" dist/ 2>/dev/null || true
+          [ -f LICENSE ] && cp LICENSE dist/
+          [ -f README.md ] && cp README.md dist/
+
+          echo "Collecting DLLs..."
+
+          ldd target/x86_64-pc-windows-gnu/release/glintindex-gui.exe \
+            | grep '/mingw64/bin/' \
+            | awk '{print $3}' \
+            | while read dll; do
+                cp "$dll" dist/
+              done
+
+          changed=true
+          while $changed; do
+            changed=false
+
+            for dll in dist/*.dll; do
+              [ -f "$dll" ] || continue
+
+              ldd "$dll" 2>/dev/null \
+                | grep '/mingw64/bin/' \
+                | awk '{print $3}' \
+                | while read dep; do
+
+                    name=$(basename "$dep")
+
+                    if [ ! -f "dist/$name" ]; then
+                        cp "$dep" "dist/"
+                        changed=true
+                    fi
+                  done
             done
           done
 
-          # Create ZIP using environment variable passed from GHA
-          7z a "glintindex-windows-x64-${VERSION}.zip" ./dist/*
+          echo "DLLs bundled:"
+          ls dist
+
+      - name: Create ZIP
+        shell: msys2 {0}
+        run: |
+          cd dist
+          7z a ../glintindex-windows-x64-${VERSION}.zip *
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7
