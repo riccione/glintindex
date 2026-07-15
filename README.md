@@ -98,13 +98,18 @@ cd glintindex
 cargo build --release
 ```
 
-The binary will be at `target/release/glintindex`.
+This builds two binaries:
+
+- `target/release/glintindex` — GUI application
+- `target/release/glintindex-cli` — CLI tool
 
 ### Using cargo install
 
 ```bash
 cargo install --path crates/glintindex-cli
 ```
+
+This installs the `glintindex-cli` binary.
 
 ### Pre-built releases
 
