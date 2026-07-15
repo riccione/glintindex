@@ -17,7 +17,7 @@ env:
   CLI_PKG: glintindex-cli
   GUI_PKG: glintindex-gui
   CLI_BIN: glintindex-cli
-  GUI_BIN: glintindex
+  GUI_BIN: glintindex-gui
   MAC_APP_NAME: GlintIndex
 
 jobs:
@@ -54,7 +54,7 @@ jobs:
       - name: Build .deb packages
         run: |
           cargo deb -p ${{ env.CLI_PKG }} || true
-          cargo deb -p ${{ env.GUI_PKG }} -- --bin ${{ env.GUI_BIN }}
+          cargo deb -p ${{ env.GUI_PKG }}
 
       - name: Locate and Rename .deb
         run: |
