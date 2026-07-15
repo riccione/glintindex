@@ -29,7 +29,7 @@ glintindex/
 |-------|-------------|
 | `glintindex-core` | Application service, filesystem scanner, Tantivy index, configuration |
 | `glintindex-cli` | Thin CLI frontend using clap |
-| `glintindex-gui` | Desktop GUI using Iced |
+| `glintindex-gui` | Desktop GUI using GTK4 |
 
 ## Supported File Types
 
@@ -40,6 +40,8 @@ Markup & data: `.html`, `.css`, `.scss`, `.xml`, `.json`, `.yaml`, `.yml`, `.tom
 Documentation: `.txt`, `.md`, `.log`
 
 Scripts: `.sh`, `.sql`
+
+Documents: `.pdf`, `.docx`, `.xlsx`, `.pptx`, `.rtf`, `.odt`
 
 ## Dependencies
 
@@ -54,7 +56,32 @@ Scripts: `.sh`, `.sql`
 | `anyhow` | 1.0.103 | Error context (CLI) |
 | `tracing` | 0.1.44 | Structured logging |
 | `gtk4` | 0.11.4 | GUI framework |
-| `notify` | 8.2.0 | Filesystem watching (planned) |
+| `notify` | 8.2.0 | Filesystem watching |
+
+### Cargo Features
+
+The `glintindex-core` crate includes optional parser features, all enabled by default:
+
+| Feature | Description | Dependencies |
+|---------|-------------|--------------|
+| `parser-pdf` | PDF parsing | `pdf-extract` |
+| `parser-docx` | DOCX parsing | `docx-lite`, `zip` |
+| `parser-xlsx` | XLSX parsing | `calamine` |
+| `parser-pptx` | PPTX parsing | `zip`, `quick-xml` |
+| `parser-rtf` | RTF parsing | `rtf-parser` |
+| `parser-odt` | ODT parsing | `zip`, `quick-xml` |
+
+To build without document parsers, disable default features:
+
+```bash
+cargo build --no-default-features -p glintindex-core
+```
+
+### Environment Variables
+
+| Variable | Description |
+|----------|-------------|
+| `RUST_LOG` | Controls log level when using `--verbose`. Default: `info`. Example: `RUST_LOG=debug` |
 
 ## Requirements
 
@@ -181,16 +208,21 @@ glintindex stats
 glintindex clear
 
 # Skip confirmation
+glintindex clear -y
 glintindex clear --yes
 ```
 
 ### Rebuild index
+
+Discards all existing index data, recreates the index structure, and re-indexes all configured folders.
 
 ```bash
 glintindex rebuild
 ```
 
 ### View configuration
+
+Displays current configuration: indexed folders, ignored folders, index directory, and preview settings.
 
 ```bash
 glintindex config
@@ -199,15 +231,45 @@ glintindex config
 ### Options
 
 ```
--v, --verbose          Enable verbose logging
--c, --config <path>    Config file path (default: index.toml)
+-v, --verbose          Enable verbose logging (respects RUST_LOG)
+-c, --config <path>    Config file path (default: platform-specific)
 -h, --help             Print help
 -V, --version          Print version
 ```
 
+## GUI
+
+The GUI application provides a graphical interface for searching and managing your indexed files.
+
+```bash
+glintindex-gui
+```
+
+### Features
+
+- **Live search**: Results update as you type
+- **File preview**: Syntax-highlighted preview with line numbers
+- **File actions**: Open files, reveal in file manager, copy file path
+- **Settings**: Configure theme (light/dark/system), font size, indexed folders, and ignored folders
+- **Index management**: Index all folders, rebuild index, or clear index from the GUI
+
+### Settings
+
+Access settings via the hamburger menu or keyboard shortcut:
+
+- **General**: Configure indexed and ignored folders
+- **Appearance**: Theme selection, font size (8-32pt)
+- **Index**: View index statistics, trigger rebuild or clear
+
 ## Configuration
 
-GlintIndex uses a TOML configuration file. Default location: `index.toml`
+GlintIndex uses a TOML configuration file. Default locations:
+
+| Platform | Config Path |
+|----------|-------------|
+| Linux | `~/.config/glintindex/config.toml` |
+| macOS | `~/Library/Application Support/GlintIndex/config.toml` |
+| Windows | `%APPDATA%/GlintIndex/config.toml` |
 
 ```toml
 indexed_folders = [
@@ -215,14 +277,17 @@ indexed_folders = [
   { path = "/home/user/docs", enabled = true },
 ]
 
-ignored_folders = [".git", "node_modules", "target", "__pycache__"]
+ignored_folders = [".git", ".svn", ".hg", "node_modules", "__pycache__", ".DS_Store"]
 
 index_directory = "/home/user/.local/share/glintindex/index"
 
 max_preview_size = 200
+
+theme = "system"  # Options: "light", "dark", "system"
+font_size = 12    # Range: 8-32
 ```
 
-If no config file exists, defaults are used with the index stored at `~/.local/share/glintindex/index`.
+If no config file exists, defaults are used with the index stored at the platform-specific location (e.g., `~/.local/share/glintindex/index` on Linux).
 
 ## Development
 
