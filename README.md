@@ -161,60 +161,60 @@ sudo pacman -S gtk4
 ### Initialize configuration
 
 ```bash
-glintindex init
+glintindex-cli init
 ```
 
 ### Index files
 
 ```bash
 # Index all configured folders
-glintindex index
+glintindex-cli index
 
 # Index a specific folder (also adds it to configuration)
-glintindex index --folder ~/Documents
+glintindex-cli index --folder ~/Documents
 ```
 
 ### Manage folders
 
 ```bash
 # List all configured folders
-glintindex folders list
+glintindex-cli folders list
 
 # Add a folder to configuration
-glintindex folders add ~/Documents
+glintindex-cli folders add ~/Documents
 
 # Remove a folder from configuration
-glintindex folders remove ~/Documents
+glintindex-cli folders remove ~/Documents
 
 # Enable a disabled folder
-glintindex folders enable ~/Documents
+glintindex-cli folders enable ~/Documents
 
 # Disable a folder (keeps it in config)
-glintindex folders disable ~/Documents
+glintindex-cli folders disable ~/Documents
 ```
 
 ### Search
 
 ```bash
-glintindex search "function definition"
-glintindex search "TODO fix"
+glintindex-cli search "function definition"
+glintindex-cli search "TODO fix"
 ```
 
 ### View statistics
 
 ```bash
-glintindex stats
+glintindex-cli stats
 ```
 
 ### Clear index
 
 ```bash
 # Clear with confirmation prompt
-glintindex clear
+glintindex-cli clear
 
 # Skip confirmation
-glintindex clear -y
-glintindex clear --yes
+glintindex-cli clear -y
+glintindex-cli clear --yes
 ```
 
 ### Rebuild index
@@ -222,7 +222,7 @@ glintindex clear --yes
 Discards all existing index data, recreates the index structure, and re-indexes all configured folders.
 
 ```bash
-glintindex rebuild
+glintindex-cli rebuild
 ```
 
 ### View configuration
@@ -230,7 +230,7 @@ glintindex rebuild
 Displays current configuration: indexed folders, ignored folders, index directory, and preview settings.
 
 ```bash
-glintindex config
+glintindex-cli config
 ```
 
 ### Options
