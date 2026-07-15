@@ -142,7 +142,7 @@ sudo pacman -S gtk4
 
 1. Download `glintindex-windows-x64-<version>.zip`
 2. Extract the ZIP to a directory of your choice
-3. Run `glintindex-gui.exe`
+3. Run `glintindex.exe` (GUI) or `glintindex-cli.exe` (CLI)
 
 **Note:** GTK4 runtime libraries are bundled in the ZIP.
 
