@@ -13,6 +13,12 @@ on:
 env:
   CARGO_TERM_COLOR: always
   TAG_NAME: ${{ github.ref_type == 'tag' && github.ref_name || github.event.inputs.tag || 'v0.0.0-test' }}
+  # Cargo Workspace Configurations
+  CLI_PKG: glintindex-cli
+  GUI_PKG: glintindex-gui
+  CLI_BIN: glintindex-cli
+  GUI_BIN: glintindex-gui
+  MAC_APP_NAME: GlintIndex
 
 jobs:
   build-linux:
@@ -29,38 +35,42 @@ jobs:
         with:
           toolchain: stable
 
+      - name: Build CLI binary (No GTK required)
+        run: cargo build --release -p ${{ env.CLI_PKG }}
+
       - name: Install system dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y pkg-config libgtk-4-dev build-essential
 
-      - name: Build release binary
-        run: cargo build --release -p glintindex-gui
+      - name: Build GUI binary
+        run: cargo build --release -p ${{ env.GUI_PKG }}
 
       - name: Install cargo-deb
         uses: taiki-e/install-action@v2
         with:
           tool: cargo-deb
 
-      - name: Build .deb package
-        run: cargo deb -p glintindex-gui
+      - name: Build .deb packages
+        run: |
+          cargo deb -p ${{ env.CLI_PKG }} || true
+          cargo deb -p ${{ env.GUI_PKG }}
 
-      # Dynamically find the .deb file inside target/ and copy/rename it safely
       - name: Locate and Rename .deb
         run: |
-          DEB_FILE=$(find target -name "*.deb" | head -n 1)
-          if [ -z "$DEB_FILE" ]; then
-            echo "Error: No .deb file found in target directory!"
-            exit 1
-          fi
-          echo "Found deb at: $DEB_FILE"
-          cp "$DEB_FILE" "./glintindex_${{ env.VERSION }}_amd64.deb"
+          mkdir -p staging
+          # Find and copy without switching directories to keep paths clean
+          find target -name "*.deb" -exec cp {} staging/ \;
+          for f in staging/*.deb; do
+            [ -e "$f" ] || continue
+            mv "$f" "${f%.deb}_${{ env.VERSION }}_amd64.deb"
+          done
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
           name: linux-deb
-          path: glintindex_${{ env.VERSION }}_amd64.deb
+          path: staging/
 
   build-windows:
     name: Build Windows
@@ -97,31 +107,33 @@ jobs:
           gcc --version
           pkg-config --version
 
-      - name: Build
+      - name: Build workspace
         shell: msys2 {0}
         env:
           PKG_CONFIG_PATH: /mingw64/lib/pkgconfig
         run: |
           set -euxo pipefail
-
-          cargo build \
-            --release \
-            -p glintindex-gui
+          cargo build --release -p ${{ env.CLI_PKG }}
+          cargo build --release -p ${{ env.GUI_PKG }}
 
       - name: Create distribution
         shell: msys2 {0}
         run: |
           set -euxo pipefail
-
-          APP=target/release/glintindex-gui.exe
+          
           mkdir -p dist
-          cp "$APP" dist/
+          cp target/release/${{ env.CLI_BIN }}.exe dist/
+          cp target/release/${{ env.GUI_BIN }}.exe dist/
 
           [ -f LICENSE ] && cp LICENSE dist/
           [ -f README.md ] && cp README.md dist/
 
-          echo "Collecting runtime DLLs..."
-          ntldd -R "$APP" | awk '/=> \/mingw64\/bin\// {print $3}' | sort -u | xargs -I {} cp "{}" dist/
+          echo "Collecting runtime DLLs for both apps..."
+          ntldd -R dist/${{ env.CLI_BIN }}.exe | awk '/=> \/mingw64\/bin\// {print $3}' > paths.txt
+          ntldd -R dist/${{ env.GUI_BIN }}.exe | awk '/=> \/mingw64\/bin\// {print $3}' >> paths.txt
+          
+          sort -u paths.txt | xargs -I {} cp "{}" dist/
+          rm paths.txt
 
           echo "Final contents:"
           ls -lh dist
@@ -185,12 +197,15 @@ jobs:
       - name: Build release binary
         env:
           PKG_CONFIG_ALLOW_CROSS: 1
-        run: cargo build --release --target ${{ matrix.target }}
+        run: |
+          cargo build --release --target ${{ matrix.target }} -p ${{ env.CLI_PKG }}
+          cargo build --release --target ${{ matrix.target }} -p ${{ env.GUI_PKG }}
 
       - name: Create .app bundle
         run: |
-          APP="GlintIndex.app"
-          BINARY="target/${{ matrix.target }}/release/glintindex-gui"
+          APP="${{ env.MAC_APP_NAME }}.app"
+          CLI_PATH="target/${{ matrix.target }}/release/${{ env.CLI_BIN }}"
+          GUI_PATH="target/${{ matrix.target }}/release/${{ env.GUI_BIN }}"
           PREFIX="${{ matrix.homebrew_prefix }}"
 
           mkdir -p "${APP}/Contents/MacOS"
@@ -199,8 +214,8 @@ jobs:
           mkdir -p "${APP}/Contents/Resources/lib"
           mkdir -p "${APP}/Contents/Resources/etc"
 
-          cp "${BINARY}" "${APP}/Contents/MacOS/glintindex-gui"
-          chmod +x "${APP}/Contents/MacOS/glintindex-gui"
+          cp "${GUI_PATH}" "${APP}/Contents/MacOS/${{ env.GUI_BIN }}"
+          chmod +x "${APP}/Contents/MacOS/${{ env.GUI_BIN }}"
 
           VISITED_FILE=$(mktemp)
 
@@ -233,13 +248,13 @@ jobs:
           echo "Collecting dylibs..."
           while read -r dep; do
             [ -n "$dep" ] && collect "$dep" "${APP}/Contents/Frameworks"
-          done < <(otool -L "${BINARY}" | tail -n +2 | awk '{print $1}')
+          done < <(otool -L "${GUI_PATH}" | tail -n +2 | awk '{print $1}')
 
           rm -f "$VISITED_FILE"
 
           echo "Rewriting dylib paths..."
           install_name_tool -add_rpath "@executable_path/../Frameworks" \
-            "${APP}/Contents/MacOS/glintindex-gui" 2>/dev/null || true
+            "${APP}/Contents/MacOS/${{ env.GUI_BIN }}" 2>/dev/null || true
 
           find_prefix_refs() {
             local binary="$1"
@@ -247,10 +262,10 @@ jobs:
             otool -L "$binary" | grep "${prefix}/" | awk '{print $1}'
           }
 
-          for ref in $(find_prefix_refs "${BINARY}" "${PREFIX}"); do
+          for ref in $(find_prefix_refs "${GUI_PATH}" "${PREFIX}"); do
             name=$(basename "$ref")
             install_name_tool -change "$ref" "@rpath/${name}" \
-              "${APP}/Contents/MacOS/glintindex-gui"
+              "${APP}/Contents/MacOS/${{ env.GUI_BIN }}"
           done
 
           for dylib in "${APP}/Contents/Frameworks/"*.dylib; do
@@ -276,20 +291,20 @@ jobs:
             sed -i '' "s|${PREFIX}/|/usr/|g" "${LOADERS_CACHE}"
           fi
 
-          cat > "${APP}/Contents/MacOS/launcher" << 'LAUNCHER_EOF'
+          cat > "${APP}/Contents/MacOS/launcher" << LAUNCHER_EOF
           #!/bin/bash
-          SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-          APP_DIR="$(dirname "$SCRIPT_DIR")"
-          RESOURCES="${APP_DIR}/Resources"
+          SCRIPT_DIR="\$(cd "\$(dirname "\$0")" && pwd)"
+          APP_DIR="\$(dirname "\$SCRIPT_DIR")"
+          RESOURCES="\${APP_DIR}/Resources"
 
-          export GTK_DATA_PREFIX="${RESOURCES}"
-          export GTK_EXE_PREFIX="${APP_DIR}/Contents"
-          export XDG_DATA_DIRS="${RESOURCES}/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
-          export GDK_PIXBUF_MODULE_FILE="${RESOURCES}/lib/gdk-pixbuf-2.0/2.10.0/loaders.cache"
-          export GTK_PATH="${RESOURCES}/lib/gtk-4.0/4.0.0"
-          export FONTCONFIG_PATH="${RESOURCES}/etc/fonts"
+          export GTK_DATA_PREFIX="\${RESOURCES}"
+          export GTK_EXE_PREFIX="\${APP_DIR}/Contents"
+          export XDG_DATA_DIRS="\${RESOURCES}/share:\${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
+          export GDK_PIXBUF_MODULE_FILE="\${RESOURCES}/lib/gdk-pixbuf-2.0/2.10.0/loaders.cache"
+          export GTK_PATH="\${RESOURCES}/lib/gtk-4.0/4.0.0"
+          export FONTCONFIG_PATH="\${RESOURCES}/etc/fonts"
 
-          exec "${SCRIPT_DIR}/glintindex-gui" "$@"
+          exec "\${SCRIPT_DIR}/${{ env.GUI_BIN }}" "\$@"
           LAUNCHER_EOF
           chmod +x "${APP}/Contents/MacOS/launcher"
 
@@ -299,9 +314,9 @@ jobs:
           <plist version="1.0">
           <dict>
             <key>CFBundleName</key>
-            <string>GlintIndex</string>
+            <string>${{ env.MAC_APP_NAME }}</string>
             <key>CFBundleDisplayName</key>
-            <string>GlintIndex</string>
+            <string>${{ env.MAC_APP_NAME }}</string>
             <key>CFBundleIdentifier</key>
             <string>com.riccione.glintindex</string>
             <key>CFBundleVersion</key>
@@ -320,7 +335,12 @@ jobs:
           </plist>
           PLIST_EOF
 
-          ditto -c -k --sequesterRsrc --keepParent "${APP}" \
+          # Package Directory Layout (Place standalone CLI next to GUI App Bundle)
+          mkdir -p staging_dir
+          cp -R "${APP}" staging_dir/
+          cp "${CLI_PATH}" staging_dir/${{ env.CLI_BIN }}
+
+          ditto -c -k --sequesterRsrc --keepParent staging_dir \
             "glintindex-${{ matrix.artifact_name }}-${{ env.VERSION }}.zip"
 
       - name: Upload artifact
@@ -374,7 +394,7 @@ jobs:
           tag_name: ${{ env.TAG_NAME }}
           generate_release_notes: true
           files: |
-            artifacts/glintindex_*_amd64.deb
+            artifacts/*.deb
             artifacts/glintindex-windows-x64-*.zip
             artifacts/glintindex-macos-*.zip
             artifacts/glintindex-source-*.tar.gz
