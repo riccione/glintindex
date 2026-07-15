@@ -54,7 +54,7 @@ jobs:
       - name: Build .deb packages
         run: |
           cargo deb -p ${{ env.CLI_PKG }} || true
-          cargo deb -p ${{ env.GUI_PKG }} --bin ${{ env.GUI_BIN }}
+          cargo deb -p ${{ env.GUI_PKG }} -- --bin ${{ env.GUI_BIN }}
 
       - name: Locate and Rename .deb
         run: |
