@@ -186,6 +186,8 @@ jobs:
           echo "PKG_CONFIG_PATH=/usr/local/lib/pkgconfig" >> $GITHUB_ENV
 
       - name: Build release binary
+        env:
+          PKG_CONFIG_ALLOW_CROSS: 1
         run: cargo build --release --target ${{ matrix.target }}
 
       - name: Create .app bundle
