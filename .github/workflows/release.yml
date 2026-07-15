@@ -98,11 +98,11 @@ jobs:
           path-type: inherit
           install: >-
             git
-            mingw-w64-x86_64-toolchain
+            mingw-w64-x86_64-gcc
             mingw-w64-x86_64-rust
-            mingw-w64-x86_64-cargo
             mingw-w64-x86_64-pkg-config
             mingw-w64-x86_64-gtk4
+            mingw-w64-x86_64-tools
             p7zip
 
       - name: Show toolchain
@@ -136,21 +136,25 @@ jobs:
         run: |
           set -euxo pipefail
 
-          mkdir dist
+          APP=target/release/glintindex-gui.exe
 
-          cp target/release/glintindex-gui.exe dist/
+          mkdir -p dist
+
+          cp "$APP" dist/
 
           [ -f LICENSE ] && cp LICENSE dist/
           [ -f README.md ] && cp README.md dist/
 
-          # Copy every runtime DLL from the MSYS2 runtime.
-          cp /mingw64/bin/*.dll dist/
+          echo "Collecting runtime DLLs..."
 
-          # Optional: reduce size.
-          rm -f dist/libLLVM*.dll || true
-          rm -f dist/clang*.dll || true
+          ntldd -R "$APP" \
+            | awk '/=> \/mingw64\/bin\// {print $3}' \
+            | sort -u \
+            | while read dll; do
+                cp "$dll" dist/
+              done
 
-          echo "Distribution contents:"
+          echo "Final contents:"
           ls -lh dist
 
       - name: Create ZIP
