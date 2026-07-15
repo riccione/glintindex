@@ -25,14 +25,14 @@ jobs:
         shell: bash
         run: echo "VERSION=${TAG_NAME#v}" >> $GITHUB_ENV
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
 
       - name: Install system dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y pkg-config libgtk-4-dev build-essential
-
-      - uses: Swatinem/rust-cache@v2
 
       - name: Build release binary
         run: cargo build --release -p glintindex-gui
@@ -96,11 +96,6 @@ jobs:
           cargo --version
           gcc --version
           pkg-config --version
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: |
-            . -> target
 
       - name: Build
         shell: msys2 {0}
@@ -174,13 +169,10 @@ jobs:
         shell: bash
         run: echo "VERSION=${TAG_NAME#v}" >> $GITHUB_ENV
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
+          toolchain: stable
           targets: ${{ matrix.target }}
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          key: ${{ matrix.arch }}
 
       # ARM64 GTK4 Installation
       - name: Install GTK4 (arm64)
