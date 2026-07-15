@@ -103,6 +103,7 @@ jobs:
             mingw-w64-x86_64-pkg-config
             mingw-w64-x86_64-gtk4
             mingw-w64-x86_64-tools
+            mingw-w64-x86_64-ntldd
             p7zip
 
       - name: Show toolchain
