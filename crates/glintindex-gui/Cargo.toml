@@ -8,7 +8,7 @@ repository.workspace = true
 rust-version.workspace = true
 
 [[bin]]
-name = "glintindex-gui"
+name = "glintindex"
 path = "src/main.rs"
 
 [dependencies]
