@@ -13,7 +13,6 @@ on:
 env:
   CARGO_TERM_COLOR: always
   TAG_NAME: ${{ github.ref_type == 'tag' && github.ref_name || github.event.inputs.tag || 'v0.0.0-test' }}
-  VERSION: ${{ replace(github.ref_type == 'tag' && github.ref_name || github.event.inputs.tag || 'v0.0.0-test', 'v', '') }}
 
 jobs:
   build-linux:
@@ -21,6 +20,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+
+      - name: Set Version
+        shell: bash
+        run: echo "VERSION=${TAG_NAME#v}" >> $GITHUB_ENV
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -61,10 +64,13 @@ jobs:
 
   build-windows:
     name: Build Windows
-    needs: prepare
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
+
+      - name: Set Version
+        shell: bash
+        run: echo "VERSION=${TAG_NAME#v}" >> $GITHUB_ENV
 
       - uses: msys2/setup-msys2@v2
         with:
@@ -149,7 +155,6 @@ jobs:
 
   build-macos:
     name: Build macOS (${{ matrix.arch }})
-    needs: prepare
     runs-on: macos-latest
     strategy:
       matrix:
@@ -164,6 +169,10 @@ jobs:
             artifact_name: macos-x86-64
     steps:
       - uses: actions/checkout@v7
+
+      - name: Set Version
+        shell: bash
+        run: echo "VERSION=${TAG_NAME#v}" >> $GITHUB_ENV
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -344,9 +353,13 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Set Version
+        shell: bash
+        run: echo "VERSION=${TAG_NAME#v}" >> $GITHUB_ENV
+
       - name: Create source archive
         run: |
-          git archive --format=tar.gz --prefix="glintindex-${VERSION}/" \
+          git archive --format=tar.gz --prefix="glintindex-${{ env.VERSION }}/" \
             -o "glintindex-source-${{ env.VERSION }}.tar.gz" HEAD
 
       - name: Upload artifact
