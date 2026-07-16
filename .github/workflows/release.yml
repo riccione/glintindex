@@ -129,9 +129,11 @@ jobs:
           [ -f README.md ] && cp README.md dist/
 
           echo "Collecting runtime DLLs for both apps..."
-          ntldd -R dist/${{ env.CLI_BIN }}.exe | awk '/=> \/mingw64\/bin\// {print $3}' > paths.txt
-          ntldd -R dist/${{ env.GUI_BIN }}.exe | awk '/=> \/mingw64\/bin\// {print $3}' >> paths.txt
-          
+          # Run ntldd. Convert all backslashes to forward slashes.
+          # Filter for mingw64 dependencies. Extract the paths.
+          ntldd -R dist/${{ env.CLI_BIN }}.exe | sed 's/\\/\//g' | grep -i 'mingw64/bin' | awk '{print $3}' > paths.txt
+          ntldd -R dist/${{ env.GUI_BIN }}.exe | sed 's/\\/\//g' | grep -i 'mingw64/bin' | awk '{print $3}' >> paths.txt
+
           sort -u paths.txt | xargs -I {} cp "{}" dist/
           rm paths.txt
 
