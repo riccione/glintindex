@@ -130,9 +130,9 @@ jobs:
 
           echo "Collecting runtime DLLs for both apps..."
           # Run ntldd. Convert all backslashes to forward slashes.
-          # Filter for mingw64 dependencies. Extract the paths.
-          ntldd -R dist/${{ env.CLI_BIN }}.exe | sed 's/\\/\//g' | grep -i 'mingw64/bin' | awk '{print $3}' > paths.txt
-          ntldd -R dist/${{ env.GUI_BIN }}.exe | sed 's/\\/\//g' | grep -i 'mingw64/bin' | awk '{print $3}' >> paths.txt
+          # Filter and extract paths safely using awk to avoid grep pipefail crashes.
+          ntldd -R "dist/${{ env.CLI_BIN }}.exe" | sed 's/\\/\//g' | awk 'tolower($0) ~ /mingw64\/bin/ {print $3}' > paths.txt
+          ntldd -R "dist/${{ env.GUI_BIN }}.exe" | sed 's/\\/\//g' | awk 'tolower($0) ~ /mingw64\/bin/ {print $3}' >> paths.txt
 
           sort -u paths.txt | xargs -I {} cp "{}" dist/
           rm paths.txt
