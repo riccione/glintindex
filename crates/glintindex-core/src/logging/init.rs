@@ -12,13 +12,15 @@ const LOG_FILE_NAME: &str = "glintindex.log";
 
 /// Returns the platform-appropriate log directory for GlintIndex.
 ///
-/// Uses the `dirs` crate to locate the standard application state directory:
-/// - Linux: `~/.local/state/glintindex/logs/`
+/// Uses the `dirs` crate to locate the standard application directory:
+/// - Linux: `~/.config/glintindex/logs/`
 /// - macOS: `~/Library/Logs/GlintIndex/`
-/// - Windows: `%LOCALAPPDATA%\GlintIndex\logs\`
+/// - Windows: `%APPDATA%\GlintIndex\logs\`
 pub fn log_dir() -> Option<PathBuf> {
-    let state_dir = dirs::state_dir().or_else(dirs::config_dir)?;
-    Some(state_dir.join("glintindex").join("logs"))
+    // Use config_dir() for consistent cross-platform behavior
+    // On Windows this returns %APPDATA%, on Linux ~/.config, on macOS ~/Library/Application Support
+    let config_dir = dirs::config_dir()?;
+    Some(config_dir.join("glintindex").join("logs"))
 }
 
 /// Ensures the log directory exists, creating it if necessary.

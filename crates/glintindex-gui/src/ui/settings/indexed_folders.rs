@@ -33,6 +33,27 @@ pub fn build(state: &Rc<RefCell<WindowState>>, parent: &Window) -> GtkBox {
     let parent_clone = parent.clone();
     let state_clone = state.clone();
     add_btn.connect_clicked(move |_| {
+        tracing::info!(target: "glintindex::debug", "Add Folder button clicked");
+
+        tracing::info!(target: "glintindex::debug", "Checking parent window");
+        tracing::info!(
+            target: "glintindex::debug",
+            parent_window_exists = true,
+            parent_window_type = %std::any::type_name::<Window>(),
+            "Parent window available"
+        );
+
+        tracing::info!(target: "glintindex::debug", "Preparing FileChooserNative dialog");
+        tracing::info!(
+            target: "glintindex::debug",
+            title = "Select Folder to Index",
+            action = "SelectFolder",
+            accept_label = "Select",
+            cancel_label = "Cancel",
+            "Dialog parameters"
+        );
+
+        tracing::info!(target: "glintindex::debug", "Calling FileChooserNative::new()");
         let dialog = gtk::FileChooserNative::new(
             Some("Select Folder to Index"),
             Some(&parent_clone),
@@ -40,27 +61,71 @@ pub fn build(state: &Rc<RefCell<WindowState>>, parent: &Window) -> GtkBox {
             Some("Select"),
             Some("Cancel"),
         );
+        tracing::info!(target: "glintindex::debug", "FileChooserNative::new() completed successfully");
 
         let state_clone = state_clone.clone();
+        tracing::info!(target: "glintindex::debug", "Connecting response callback");
         dialog.connect_response(move |dialog, response| {
+            tracing::info!(target: "glintindex::debug", "Response callback entered");
+            tracing::info!(
+                target: "glintindex::debug",
+                response = ?response,
+                response_is_accept = response == gtk::ResponseType::Accept,
+                response_is_cancel = response == gtk::ResponseType::Cancel,
+                "Dialog response received"
+            );
+
             if response == gtk::ResponseType::Accept {
+                tracing::info!(target: "glintindex::debug", "Response is Accept, getting file");
                 if let Some(file) = dialog.file() {
+                    tracing::info!(
+                        target: "glintindex::debug",
+                        file_uri = %file.uri(),
+                        "Got GFile from dialog"
+                    );
                     if let Some(path) = file.path() {
+                        tracing::info!(
+                            target: "glintindex::debug",
+                            path = %path.display(),
+                            path_exists = path.exists(),
+                            "Got path from GFile"
+                        );
+
+                        tracing::info!(target: "glintindex::debug", "Borrowing WindowState");
                         let mut st = state_clone.borrow_mut();
+                        tracing::info!(target: "glintindex::debug", "WindowState borrowed successfully");
+
+                        tracing::info!(target: "glintindex::debug", "Calling ApplicationService::add_folder()");
                         match st.service.add_folder(&path) {
                             Ok(()) => {
+                                tracing::info!(target: "glintindex::debug", "ApplicationService::add_folder() succeeded");
                                 st.status = format!("Added: {}", path.display());
                             }
                             Err(e) => {
+                                tracing::error!(
+                                    target: "glintindex::debug",
+                                    error = %e,
+                                    "ApplicationService::add_folder() failed"
+                                );
                                 st.status = format!("Failed to add folder: {e}");
                             }
                         }
+                    } else {
+                        tracing::warn!(target: "glintindex::debug", "GFile.path() returned None");
                     }
+                } else {
+                    tracing::warn!(target: "glintindex::debug", "dialog.file() returned None");
                 }
+            } else {
+                tracing::info!(target: "glintindex::debug", "Dialog cancelled or dismissed");
             }
+            tracing::info!(target: "glintindex::debug", "Response callback completed");
         });
+        tracing::info!(target: "glintindex::debug", "Response callback connected successfully");
 
+        tracing::info!(target: "glintindex::debug", "Calling dialog.show()");
         dialog.show();
+        tracing::info!(target: "glintindex::debug", "dialog.show() completed");
     });
 
     content.append(&add_btn);
