@@ -38,4 +38,4 @@
 
 mod init;
 
-pub use init::{ensure_log_dir, init, log_dir, LoggingConfig};
+pub use init::{LoggingConfig, ensure_log_dir, init, log_dir};

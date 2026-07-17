@@ -1,12 +1,7 @@
 use std::path::PathBuf;
 
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
-use tracing_subscriber::{
-    fmt,
-    layer::SubscriberExt,
-    util::SubscriberInitExt,
-    EnvFilter,
-};
+use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt};
 
 /// Default log file name.
 const LOG_FILE_NAME: &str = "glintindex.log";
@@ -82,8 +77,8 @@ impl Default for LoggingConfig {
 /// Panics if the subscriber cannot be set (e.g., if called more than once
 /// in the same process).
 pub fn init(config: LoggingConfig) {
-    let env_filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new(&config.default_level));
+    let env_filter =
+        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(&config.default_level));
 
     if config.log_to_file {
         init_with_file(env_filter, config.log_to_stderr)
@@ -97,9 +92,7 @@ fn init_with_file(env_filter: EnvFilter, also_stderr: bool) {
     let log_dir = match ensure_log_dir() {
         Ok(dir) => dir,
         Err(e) => {
-            eprintln!(
-                "Warning: could not create log directory, file logging disabled: {e}"
-            );
+            eprintln!("Warning: could not create log directory, file logging disabled: {e}");
             init_stderr_only(env_filter);
             return;
         }

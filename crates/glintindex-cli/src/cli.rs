@@ -1,6 +1,6 @@
 use clap::Parser as _;
-use glintindex_core::logging::{LoggingConfig, init as init_logging};
 use glintindex_core::AppPaths;
+use glintindex_core::logging::{LoggingConfig, init as init_logging};
 
 use crate::commands::{self, Command};
 
