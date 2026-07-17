@@ -6,13 +6,14 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use gtk::glib;
 use gtk::prelude::*;
 use gtk::{Box as GtkBox, Button, Label, ListBox, Orientation, Separator, Window};
 
 use crate::window::WindowState;
 
 /// Builds the Indexed Folders settings page.
-pub fn build(state: &Rc<RefCell<WindowState>>, parent: &Window) -> GtkBox {
+pub fn build(state: &Rc<RefCell<WindowState>>, _parent: &Window) -> GtkBox {
     let content = GtkBox::new(Orientation::Vertical, 12);
     content.set_margin_top(16);
     content.set_margin_bottom(16);
@@ -27,48 +28,59 @@ pub fn build(state: &Rc<RefCell<WindowState>>, parent: &Window) -> GtkBox {
     content.append(&title);
     content.append(&Separator::new(gtk::Orientation::Horizontal));
 
-    // Add Folder button
-    let add_btn = Button::builder().label("Add Folder").build();
-
-    let parent_clone = parent.clone();
-    let state_clone = state.clone();
-    add_btn.connect_clicked(move |_| {
-        let dialog = gtk::FileChooserNative::new(
-            Some("Select Folder to Index"),
-            Some(&parent_clone),
-            gtk::FileChooserAction::SelectFolder,
-            Some("Select"),
-            Some("Cancel"),
-        );
-
-        let state_clone = state_clone.clone();
-        dialog.connect_response(move |dialog, response| {
-            if response == gtk::ResponseType::Accept {
-                if let Some(file) = dialog.file() {
-                    if let Some(path) = file.path() {
-                        let mut st = state_clone.borrow_mut();
-                        match st.service.add_folder(&path) {
-                            Ok(()) => {
-                                st.status = format!("Added: {}", path.display());
-                            }
-                            Err(e) => {
-                                st.status = format!("Failed to add folder: {e}");
-                            }
-                        }
-                    }
-                }
-            }
-        });
-
-        dialog.show();
-    });
-
-    content.append(&add_btn);
-
     // Folders list
     let listbox = ListBox::builder()
         .selection_mode(gtk::SelectionMode::None)
         .build();
+
+    // Add Folder button
+    let add_btn = Button::builder().label("Add Folder").build();
+
+    let state_clone = state.clone();
+    let listbox_for_add = listbox.clone();
+    add_btn.connect_clicked(move |_| {
+        let state_clone = state_clone.clone();
+        let listbox_clone = listbox_for_add.clone();
+        glib::spawn_future_local(async move {
+            tracing::debug!("Opening folder selection dialog");
+            let dialog = rfd::AsyncFileDialog::new()
+                .set_title("Select Folder to Index")
+                .pick_folder()
+                .await;
+
+            match dialog {
+                Some(file_handle) => {
+                    let path = file_handle.path().to_path_buf();
+                    tracing::info!(path = %path.display(), "Folder selected");
+                    let result = {
+                        let mut st = state_clone.borrow_mut();
+                        let result = st.service.add_folder(&path);
+                        if result.is_ok() {
+                            st.status = format!("Added: {}", path.display());
+                        } else if let Err(ref e) = result {
+                            st.status = format!("Failed to add folder: {e}");
+                        }
+                        result
+                    };
+                    if let Err(e) = result {
+                        tracing::warn!(
+                            path = %path.display(),
+                            error = %e,
+                            "Failed to add folder"
+                        );
+                    } else {
+                        tracing::info!(path = %path.display(), "Folder added");
+                        refresh_folder_list(&state_clone, &listbox_clone);
+                    }
+                }
+                None => {
+                    tracing::debug!("Folder selection cancelled");
+                }
+            }
+        });
+    });
+
+    content.append(&add_btn);
 
     let state_clone = state.clone();
     let listbox_clone = listbox.clone();

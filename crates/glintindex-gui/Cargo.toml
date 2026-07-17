@@ -15,6 +15,7 @@ tracing.workspace = true
 tracing-log = "0.2.0"
 anyhow.workspace = true
 tokio.workspace = true
+rfd.workspace = true
 
 [dev-dependencies]
 tempfile = "3"
