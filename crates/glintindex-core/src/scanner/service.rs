@@ -115,7 +115,11 @@ impl<'a> FilesystemScanner<'a> {
             let entry = match entry {
                 Ok(e) => e,
                 Err(err) => {
-                    tracing::warn!("walkdir error: {err}");
+                    tracing::warn!(
+                        target: "glintindex::scanner",
+                        error = %err,
+                        "directory walk error"
+                    );
                     continue;
                 }
             };
@@ -178,11 +182,32 @@ impl<'a> FilesystemScanner<'a> {
             match self.process_file(path) {
                 Ok(doc) => {
                     if let Err(err) = self.index_service.update_document(&doc) {
-                        tracing::warn!("failed to index {}: {err}", path.display());
+                        let file_size = doc.size;
+                        let extension = doc
+                            .path
+                            .extension()
+                            .and_then(|e| e.to_str())
+                            .unwrap_or("unknown")
+                            .to_string();
+
+                        tracing::warn!(
+                            target: "glintindex::scanner",
+                            operation = "index",
+                            path = %doc.path.display(),
+                            extension = %extension,
+                            size = file_size,
+                            error = %err,
+                            "failed to update document in index"
+                        );
                         stats.inc_files_failed();
                         self.reporter.on_file_failed(path, &err.to_string());
                     } else {
-                        tracing::info!("Indexed: {}", path.display());
+                        tracing::debug!(
+                            target: "glintindex::scanner",
+                            operation = "index",
+                            path = %path.display(),
+                            "file indexed successfully"
+                        );
                         if is_new_file {
                             stats.inc_files_indexed();
                         } else {
@@ -192,26 +217,66 @@ impl<'a> FilesystemScanner<'a> {
                     }
                 }
                 Err(FileParseOutcome::ReadError(err)) => {
+                    let file_size = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
+                    let extension = path
+                        .extension()
+                        .and_then(|e| e.to_str())
+                        .unwrap_or("unknown")
+                        .to_string();
+
                     tracing::warn!(
-                        "Skipping unreadable file: {}\n  Reason: {err}",
-                        path.display()
+                        target: "glintindex::scanner",
+                        operation = "index",
+                        path = %path.display(),
+                        extension = %extension,
+                        size = file_size,
+                        error = %err,
+                        skipped = true,
+                        "file read error"
                     );
                     stats.inc_files_failed();
                     self.reporter.on_file_failed(path, &err);
                 }
                 Err(FileParseOutcome::ParserError(parser_name, err)) => {
+                    let file_size = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
+                    let extension = path
+                        .extension()
+                        .and_then(|e| e.to_str())
+                        .unwrap_or("unknown")
+                        .to_string();
+
                     tracing::warn!(
-                        "Skipping corrupted {parser_name}: {}\n  Reason: {err}",
-                        path.display()
+                        target: "glintindex::scanner",
+                        operation = "index",
+                        parser = %parser_name,
+                        path = %path.display(),
+                        extension = %extension,
+                        size = file_size,
+                        error = %err,
+                        skipped = true,
+                        "parser error"
                     );
                     stats.inc_parser_errors();
                     stats.inc_files_skipped();
                     self.reporter.on_parser_error(path, &parser_name, &err);
                 }
                 Err(FileParseOutcome::ParserPanic(parser_name)) => {
+                    let file_size = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
+                    let extension = path
+                        .extension()
+                        .and_then(|e| e.to_str())
+                        .unwrap_or("unknown")
+                        .to_string();
+
                     tracing::error!(
-                        "{parser_name} parser panicked: {}\n  Parser panic recovered.",
-                        path.display()
+                        target: "glintindex::scanner",
+                        operation = "index",
+                        parser = %parser_name,
+                        path = %path.display(),
+                        extension = %extension,
+                        size = file_size,
+                        skipped = true,
+                        "parser panicked"
                     );
                     stats.inc_parser_panics();
                     stats.inc_files_skipped();
