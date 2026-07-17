@@ -10,10 +10,21 @@ mod theme;
 mod ui;
 mod window;
 
+use glintindex_core::logging::{LoggingConfig, init as init_logging};
 use gtk::prelude::*;
 
 fn main() {
-    env_logger::init();
+    // Initialize structured logging with file output
+    // The GUI always logs to file; stderr is enabled for development
+    let log_to_stderr = std::env::var("RUST_LOG").is_ok();
+    init_logging(LoggingConfig {
+        default_level: "info".to_string(),
+        log_to_stderr,
+        log_to_file: true,
+    });
+
+    // Bridge log crate to tracing for any remaining log:: calls
+    tracing_log::LogTracer::init().ok();
 
     let app = application::build_application();
     app.run();
