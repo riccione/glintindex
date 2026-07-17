@@ -12,7 +12,6 @@ glintindex-core.workspace = true
 clap.workspace = true
 anyhow.workspace = true
 tracing.workspace = true
-tracing-subscriber.workspace = true
 indicatif = "0.18.4"
 
 [dev-dependencies]
