@@ -294,6 +294,58 @@ font_size = 12    # Range: 8-32
 
 If no config file exists, defaults are used with the index stored at the platform-specific location (e.g., `~/.local/share/glintindex/index` on Linux).
 
+## Logging
+
+GlintIndex uses structured logging via the `tracing` ecosystem. Logs are written to a file in the platform's standard application state directory and can optionally be output to stderr.
+
+### Log Location
+
+| Platform | Log Path |
+|----------|----------|
+| Linux | `~/.local/state/glintindex/logs/glintindex.log` |
+| macOS | `~/Library/Logs/GlintIndex/glintindex.log` |
+| Windows | `%LOCALAPPDATA%\GlintIndex\logs\glintindex.log` |
+
+The log directory is created automatically on first run.
+
+### What is Logged
+
+- **Parser failures**: parser name, file path, file extension, file size, error message
+- **Parser panics**: parser name, file path, recovery confirmation
+- **Indexing lifecycle events**: indexing started/completed, rebuild started/completed, watcher started/stopped
+- **Filesystem watcher events**: file indexing failures, deletion failures
+- **Warnings**: unsupported formats, corrupted documents, permission errors, file disappearance during indexing
+
+### Viewing Logs
+
+Logs are intended for troubleshooting and bug reporting. To view logs:
+
+```bash
+# Linux
+cat ~/.local/state/glintindex/logs/glintindex.log
+
+# macOS
+cat ~/Library/Logs/GlintIndex/glintindex.log
+
+# Windows (PowerShell)
+cat "$env:LOCALAPPDATA\GlintIndex\logs\glintindex.log"
+```
+
+### Verbose Output
+
+The CLI supports verbose output to stderr with the `--verbose` flag:
+
+```bash
+glintindex-cli --verbose index
+```
+
+You can also control the log level via the `RUST_LOG` environment variable:
+
+```bash
+RUST_LOG=debug glintindex-cli index
+RUST_LOG=glintindex_core::scanner=debug glintindex-cli index
+```
+
 ## Development
 
 ### Build
