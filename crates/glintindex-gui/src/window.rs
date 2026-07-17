@@ -228,7 +228,12 @@ impl GlintIndexWindow {
                     if index < st.results.len() {
                         let path = &st.results[index].document.path;
                         if let Err(e) = crate::file_actions::open_file(path) {
-                            eprintln!("Open file failed: {e}");
+                            tracing::warn!(
+                                target: "glintindex::gui",
+                                path = %path.display(),
+                                error = %e,
+                                "open file failed"
+                            );
                         }
                     }
                 }
@@ -242,7 +247,12 @@ impl GlintIndexWindow {
                     if index < st.results.len() {
                         let path = &st.results[index].document.path;
                         if let Err(e) = crate::file_actions::reveal_in_file_manager(path) {
-                            eprintln!("Reveal in file manager failed: {e}");
+                            tracing::warn!(
+                                target: "glintindex::gui",
+                                path = %path.display(),
+                                error = %e,
+                                "reveal in file manager failed"
+                            );
                         }
                     }
                 }
@@ -257,7 +267,12 @@ impl GlintIndexWindow {
                     if index < st.results.len() {
                         let path = &st.results[index].document.path;
                         if let Err(e) = crate::file_actions::copy_path(path, &window_ref) {
-                            eprintln!("Copy path failed: {e}");
+                            tracing::warn!(
+                                target: "glintindex::gui",
+                                path = %path.display(),
+                                error = %e,
+                                "copy path failed"
+                            );
                         }
                     }
                 }

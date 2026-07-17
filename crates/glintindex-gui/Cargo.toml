@@ -11,8 +11,8 @@ rust-version.workspace = true
 glintindex-core.workspace = true
 gtk = { package = "gtk4", version = "=0.11.4" }
 open.workspace = true
-log.workspace = true
-env_logger.workspace = true
+tracing.workspace = true
+tracing-log = "0.2.0"
 anyhow.workspace = true
 tokio.workspace = true
 

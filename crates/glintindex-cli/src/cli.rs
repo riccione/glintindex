@@ -1,17 +1,18 @@
 use clap::Parser as _;
 use glintindex_core::AppPaths;
+use glintindex_core::logging::{LoggingConfig, init as init_logging};
 
 use crate::commands::{self, Command};
 
 /// GlintIndex - Local desktop search engine
 #[derive(clap::Parser)]
 #[command(
-    name = "glintindex",
+    name = "glintindex-cli",
     version,
     about = "Local desktop search engine for indexing and searching files"
 )]
 pub struct Cli {
-    /// Enable verbose logging output
+    /// Enable verbose logging output to stderr (logs are always written to file)
     #[arg(short, long)]
     pub verbose: bool,
 
@@ -26,7 +27,14 @@ pub struct Cli {
 pub fn run() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
-    init_logging(cli.verbose);
+    // Initialize structured logging with file output
+    // The CLI always logs to file; stderr is enabled with --verbose or RUST_LOG
+    let log_to_stderr = cli.verbose || std::env::var("RUST_LOG").is_ok();
+    init_logging(LoggingConfig {
+        default_level: if cli.verbose { "debug" } else { "info" }.to_string(),
+        log_to_stderr,
+        log_to_file: true,
+    });
 
     let config_path = match &cli.config {
         Some(path) => path.clone(),
@@ -45,17 +53,6 @@ pub fn run() -> anyhow::Result<()> {
     }
 }
 
-fn init_logging(verbose: bool) {
-    if verbose {
-        tracing_subscriber::fmt()
-            .with_env_filter(
-                tracing_subscriber::EnvFilter::try_from_default_env()
-                    .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
-            )
-            .init();
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -69,7 +66,7 @@ mod tests {
 
     #[test]
     fn parse_verbose_flag() {
-        let cli = Cli::try_parse_from(["glintindex", "--verbose", "stats"]).unwrap();
+        let cli = Cli::try_parse_from(["glintindex-cli", "--verbose", "stats"]).unwrap();
         assert!(cli.verbose);
         assert!(matches!(cli.command, Command::Stats));
     }
@@ -77,13 +74,13 @@ mod tests {
     #[test]
     fn parse_config_flag() {
         let cli =
-            Cli::try_parse_from(["glintindex", "--config", "/tmp/test.toml", "stats"]).unwrap();
+            Cli::try_parse_from(["glintindex-cli", "--config", "/tmp/test.toml", "stats"]).unwrap();
         assert_eq!(cli.config.as_deref(), Some("/tmp/test.toml"));
     }
 
     #[test]
     fn parse_search_command() {
-        let cli = Cli::try_parse_from(["glintindex", "search", "invoice"]).unwrap();
+        let cli = Cli::try_parse_from(["glintindex-cli", "search", "invoice"]).unwrap();
         match cli.command {
             Command::Search(args) => assert_eq!(args.query, "invoice"),
             _ => panic!("expected Search command"),
@@ -92,37 +89,37 @@ mod tests {
 
     #[test]
     fn parse_index_command() {
-        let cli = Cli::try_parse_from(["glintindex", "index"]).unwrap();
+        let cli = Cli::try_parse_from(["glintindex-cli", "index"]).unwrap();
         assert!(matches!(cli.command, Command::Index(_)));
     }
 
     #[test]
     fn parse_stats_command() {
-        let cli = Cli::try_parse_from(["glintindex", "stats"]).unwrap();
+        let cli = Cli::try_parse_from(["glintindex-cli", "stats"]).unwrap();
         assert!(matches!(cli.command, Command::Stats));
     }
 
     #[test]
     fn parse_rebuild_command() {
-        let cli = Cli::try_parse_from(["glintindex", "rebuild"]).unwrap();
+        let cli = Cli::try_parse_from(["glintindex-cli", "rebuild"]).unwrap();
         assert!(matches!(cli.command, Command::Rebuild));
     }
 
     #[test]
     fn parse_config_command() {
-        let cli = Cli::try_parse_from(["glintindex", "config"]).unwrap();
+        let cli = Cli::try_parse_from(["glintindex-cli", "config"]).unwrap();
         assert!(matches!(cli.command, Command::Config));
     }
 
     #[test]
     fn parse_init_command() {
-        let cli = Cli::try_parse_from(["glintindex", "init"]).unwrap();
+        let cli = Cli::try_parse_from(["glintindex-cli", "init"]).unwrap();
         assert!(matches!(cli.command, Command::Init));
     }
 
     #[test]
     fn parse_folders_list_command() {
-        let cli = Cli::try_parse_from(["glintindex", "folders", "list"]).unwrap();
+        let cli = Cli::try_parse_from(["glintindex-cli", "folders", "list"]).unwrap();
         match cli.command {
             Command::Folders(args) => assert!(matches!(args.command, FoldersCommand::List)),
             _ => panic!("expected Folders command"),
@@ -131,7 +128,7 @@ mod tests {
 
     #[test]
     fn parse_folders_add_command() {
-        let cli = Cli::try_parse_from(["glintindex", "folders", "add", "~/Documents"]).unwrap();
+        let cli = Cli::try_parse_from(["glintindex-cli", "folders", "add", "~/Documents"]).unwrap();
         match cli.command {
             Command::Folders(args) => match args.command {
                 FoldersCommand::Add { path } => assert_eq!(path, "~/Documents"),
@@ -143,7 +140,8 @@ mod tests {
 
     #[test]
     fn parse_folders_remove_command() {
-        let cli = Cli::try_parse_from(["glintindex", "folders", "remove", "~/Documents"]).unwrap();
+        let cli =
+            Cli::try_parse_from(["glintindex-cli", "folders", "remove", "~/Documents"]).unwrap();
         match cli.command {
             Command::Folders(args) => match args.command {
                 FoldersCommand::Remove { path } => assert_eq!(path, "~/Documents"),
@@ -155,7 +153,8 @@ mod tests {
 
     #[test]
     fn parse_folders_enable_command() {
-        let cli = Cli::try_parse_from(["glintindex", "folders", "enable", "~/Documents"]).unwrap();
+        let cli =
+            Cli::try_parse_from(["glintindex-cli", "folders", "enable", "~/Documents"]).unwrap();
         match cli.command {
             Command::Folders(args) => match args.command {
                 FoldersCommand::Enable { path } => assert_eq!(path, "~/Documents"),
@@ -167,7 +166,8 @@ mod tests {
 
     #[test]
     fn parse_folders_disable_command() {
-        let cli = Cli::try_parse_from(["glintindex", "folders", "disable", "~/Documents"]).unwrap();
+        let cli =
+            Cli::try_parse_from(["glintindex-cli", "folders", "disable", "~/Documents"]).unwrap();
         match cli.command {
             Command::Folders(args) => match args.command {
                 FoldersCommand::Disable { path } => assert_eq!(path, "~/Documents"),
@@ -179,7 +179,7 @@ mod tests {
 
     #[test]
     fn parse_clear_command() {
-        let cli = Cli::try_parse_from(["glintindex", "clear"]).unwrap();
+        let cli = Cli::try_parse_from(["glintindex-cli", "clear"]).unwrap();
         match cli.command {
             Command::Clear(args) => assert!(!args.yes),
             _ => panic!("expected Clear command"),
@@ -188,7 +188,7 @@ mod tests {
 
     #[test]
     fn parse_clear_yes_flag() {
-        let cli = Cli::try_parse_from(["glintindex", "clear", "--yes"]).unwrap();
+        let cli = Cli::try_parse_from(["glintindex-cli", "clear", "--yes"]).unwrap();
         match cli.command {
             Command::Clear(args) => assert!(args.yes),
             _ => panic!("expected Clear command"),
@@ -197,7 +197,7 @@ mod tests {
 
     #[test]
     fn parse_clear_short_yes_flag() {
-        let cli = Cli::try_parse_from(["glintindex", "clear", "-y"]).unwrap();
+        let cli = Cli::try_parse_from(["glintindex-cli", "clear", "-y"]).unwrap();
         match cli.command {
             Command::Clear(args) => assert!(args.yes),
             _ => panic!("expected Clear command"),

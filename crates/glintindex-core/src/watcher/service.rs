@@ -119,7 +119,11 @@ impl FileWatcher {
                     Self::handle_notify_event(&event_tx, &event);
                 }
                 Err(err) => {
-                    tracing::warn!("filesystem watch error: {err}");
+                    tracing::warn!(
+                        target: "glintindex::watcher",
+                        error = %err,
+                        "filesystem watch error"
+                    );
                 }
             }
         })
@@ -239,7 +243,10 @@ impl FileWatcher {
 
             if let Some(evt) = watch_event {
                 if tx.send(evt).is_err() {
-                    tracing::warn!("event channel closed, dropping event");
+                    tracing::warn!(
+                        target: "glintindex::watcher",
+                        "event channel closed, dropping event"
+                    );
                 }
             }
         }
@@ -281,12 +288,33 @@ impl FileWatcher {
         match event {
             WatchEvent::Created(path) | WatchEvent::Modified(path) => {
                 if let Err(err) = process_file(path, &self.index_service) {
-                    tracing::warn!("failed to index {}: {err}", path.display());
+                    let file_size = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
+                    let extension = path
+                        .extension()
+                        .and_then(|e| e.to_str())
+                        .unwrap_or("unknown")
+                        .to_string();
+
+                    tracing::warn!(
+                        target: "glintindex::watcher",
+                        operation = "watch",
+                        path = %path.display(),
+                        extension = %extension,
+                        size = file_size,
+                        error = %err,
+                        "failed to index file"
+                    );
                 }
             }
             WatchEvent::Deleted(path) => {
                 if let Err(err) = remove_document(path, &self.index_service) {
-                    tracing::warn!("failed to remove {}: {err}", path.display());
+                    tracing::warn!(
+                        target: "glintindex::watcher",
+                        operation = "watch",
+                        path = %path.display(),
+                        error = %err,
+                        "failed to remove document from index"
+                    );
                 }
             }
         }

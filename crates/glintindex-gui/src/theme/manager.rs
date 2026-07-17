@@ -74,7 +74,10 @@ impl ThemeManager {
                 gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
             );
         } else {
-            log::warn!("No GDK display available; theme will not be applied.");
+            tracing::warn!(
+                target: "glintindex::gui",
+                "no GDK display available; theme will not be applied"
+            );
         }
 
         let manager = Self {

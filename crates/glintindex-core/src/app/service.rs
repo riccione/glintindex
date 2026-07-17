@@ -162,6 +162,13 @@ impl ApplicationService {
         folder: &Path,
         reporter: &dyn ProgressReporter,
     ) -> Result<ScannerStatistics> {
+        tracing::info!(
+            target: "glintindex::index",
+            operation = "index",
+            path = %folder.display(),
+            "indexing folder started"
+        );
+
         let service = self
             .index_service
             .lock()
@@ -172,6 +179,20 @@ impl ApplicationService {
         let stats = scanner.scan_directory(folder)?;
         service.commit()?;
         service.reload_reader()?;
+
+        tracing::info!(
+            target: "glintindex::index",
+            operation = "index",
+            path = %folder.display(),
+            files_indexed = stats.files_indexed,
+            files_reindexed = stats.files_reindexed,
+            files_skipped = stats.files_skipped,
+            files_failed = stats.files_failed,
+            parser_errors = stats.parser_errors,
+            parser_panics = stats.parser_panics,
+            "indexing folder completed"
+        );
+
         Ok(stats)
     }
 
@@ -196,6 +217,14 @@ impl ApplicationService {
         &self,
         reporter: &dyn ProgressReporter,
     ) -> Result<Vec<ScannerStatistics>> {
+        let enabled_count = self.config.enabled_folders().len();
+        tracing::info!(
+            target: "glintindex::index",
+            operation = "index",
+            folders = enabled_count,
+            "indexing all folders started"
+        );
+
         let service = self
             .index_service
             .lock()
@@ -212,6 +241,20 @@ impl ApplicationService {
         let stats = scanner.scan_directories(&folders)?;
         service.commit()?;
         service.reload_reader()?;
+
+        tracing::info!(
+            target: "glintindex::index",
+            operation = "index",
+            folders = enabled_count,
+            files_indexed = stats.files_indexed,
+            files_reindexed = stats.files_reindexed,
+            files_skipped = stats.files_skipped,
+            files_failed = stats.files_failed,
+            parser_errors = stats.parser_errors,
+            parser_panics = stats.parser_panics,
+            "indexing all folders completed"
+        );
+
         Ok(vec![stats])
     }
 
@@ -242,6 +285,13 @@ impl ApplicationService {
     /// Returns an error if the index cannot be rebuilt.
     pub fn rebuild_index(&self) -> Result<()> {
         use crate::traits::DocumentIndexer;
+
+        tracing::info!(
+            target: "glintindex::index",
+            operation = "rebuild",
+            "rebuild started"
+        );
+
         let service = self
             .index_service
             .lock()
@@ -249,6 +299,13 @@ impl ApplicationService {
         service.rebuild()?;
         service.commit()?;
         service.reload_reader()?;
+
+        tracing::info!(
+            target: "glintindex::index",
+            operation = "rebuild",
+            "rebuild completed"
+        );
+
         Ok(())
     }
 
@@ -309,6 +366,14 @@ impl ApplicationService {
             return Ok(());
         }
 
+        let folder_count = self.config.enabled_folders().len();
+        tracing::info!(
+            target: "glintindex::watcher",
+            operation = "watcher",
+            folders = folder_count,
+            "watcher started"
+        );
+
         let mut watcher = FileWatcher::with_custom_ignores(
             self.index_service.clone(),
             &self.config.ignored_folders,
@@ -337,6 +402,11 @@ impl ApplicationService {
     pub fn stop_watching(&mut self) -> Result<()> {
         if let Some(mut watcher) = self.watcher.take() {
             watcher.stop()?;
+            tracing::info!(
+                target: "glintindex::watcher",
+                operation = "watcher",
+                "watcher stopped"
+            );
         }
         Ok(())
     }

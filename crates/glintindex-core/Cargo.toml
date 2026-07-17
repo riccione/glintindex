@@ -23,7 +23,8 @@ serde = { workspace = true, features = ["derive"] }
 toml = "0.8"
 thiserror.workspace = true
 tracing.workspace = true
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-subscriber.workspace = true
+tracing-appender.workspace = true
 tantivy.workspace = true
 walkdir.workspace = true
 syntect.workspace = true
