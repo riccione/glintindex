@@ -1096,7 +1096,6 @@ dependencies = [
  "indicatif",
  "tempfile",
  "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]
