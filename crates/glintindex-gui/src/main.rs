@@ -1,3 +1,5 @@
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 //! GlintIndex GUI — GTK4-based desktop search interface.
 //!
 //! This is the entry point for the graphical user interface.
