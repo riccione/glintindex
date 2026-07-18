@@ -201,7 +201,7 @@ impl GlintIndexWindow {
         }
 
         // Search bar + settings button
-        let (header, settings_btn) = ui::search_bar::build(&state, &results_listbox);
+        let (_header, settings_btn) = ui::search_bar::build(&state, &results_listbox);
 
         // Main vertical layout
         let content = GtkBox::new(Orientation::Vertical, 4);
@@ -218,7 +218,7 @@ impl GlintIndexWindow {
             .child(&content)
             .build();
         // Set the header bar strictly as the Window's titlebar
-        window.set_titlebar(Some(&header));
+        // window.set_titlebar(Some(&header));
         // Wire up action button click handlers (after window creation for clipboard access)
         {
             let state_clone = state.clone();
