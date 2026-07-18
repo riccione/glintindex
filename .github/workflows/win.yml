@@ -1,0 +1,104 @@
+---
+name: Only Windows builds
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to release (e.g. v0.1.0)'
+        required: false
+        default: 'v0.0.0-test'
+
+env:
+  CARGO_TERM_COLOR: always
+  TAG_NAME: ${{ github.event.inputs.tag || 'v0.0.0-test' }}
+  # Cargo Workspace Configurations
+  CLI_PKG: glintindex-cli
+  GUI_PKG: glintindex-gui
+  CLI_BIN: glintindex-cli
+  GUI_BIN: glintindex-gui
+  MAC_APP_NAME: GlintIndex
+
+jobs:
+  build-windows:
+    name: Build Windows
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set Version
+        shell: bash
+        run: |
+          # Strip leading 'v' if present, otherwise keep as is
+          CLEAN_VER="${TAG_NAME#v}"
+          echo "VERSION=${CLEAN_VER}" >> $GITHUB_ENV
+
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          path-type: inherit
+          install: >-
+            git
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-rust
+            mingw-w64-x86_64-pkg-config
+            mingw-w64-x86_64-gtk4
+            mingw-w64-x86_64-tools
+            mingw-w64-x86_64-ntldd
+            p7zip
+
+      - name: Show toolchain
+        shell: msys2 {0}
+        run: |
+          which rustc
+          which cargo
+          rustc --version
+          cargo --version
+          gcc --version
+          pkg-config --version
+
+      - name: Build workspace
+        shell: msys2 {0}
+        env:
+          PKG_CONFIG_PATH: /mingw64/lib/pkgconfig
+        run: |
+          set -euxo pipefail
+          cargo build --release -p ${{ env.CLI_PKG }}
+          cargo build --release -p ${{ env.GUI_PKG }}
+
+      - name: Create distribution
+        shell: msys2 {0}
+        run: |
+          set -euxo pipefail
+          
+          mkdir -p dist
+          cp target/release/${{ env.CLI_BIN }}.exe dist/
+          cp target/release/${{ env.GUI_BIN }}.exe dist/
+
+          [ -f LICENSE ] && cp LICENSE dist/
+          [ -f README.md ] && cp README.md dist/
+
+          echo "Collecting runtime DLLs for both apps..."
+          ntldd -R "dist/${{ env.CLI_BIN }}.exe" | sed 's/\\/\//g' | awk 'tolower($0) ~ /mingw64\/bin/ {print $3}' > paths.txt
+          ntldd -R "dist/${{ env.GUI_BIN }}.exe" | sed 's/\\/\//g' | awk 'tolower($0) ~ /mingw64\/bin/ {print $3}' >> paths.txt
+
+          sort -u paths.txt | xargs -I {} cp "{}" dist/
+          rm paths.txt
+
+          echo "Final contents:"
+          ls -lh dist
+
+      - name: Create ZIP
+        shell: msys2 {0}
+        run: |
+          set -euxo pipefail
+          cd dist
+          7z a ../glintindex-windows-x64-${{ env.VERSION }}.zip *
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-zip
+          path: glintindex-windows-x64-${{ env.VERSION }}.zip
+          retention-days: 3
