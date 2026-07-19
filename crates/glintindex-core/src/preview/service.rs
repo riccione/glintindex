@@ -99,18 +99,45 @@ impl PreviewService {
         Self::new(PreviewConfig::default())
     }
 
-    /// Loads and highlights a file for preview.
+    /// Generates a preview from pre-extracted text.
     ///
-    /// Returns a complete preview output with syntax highlighting,
-    /// line numbers, and search match highlights.
-    pub fn load_preview(&self, path: &Path, search_query: &str) -> PreviewOutput {
+    /// Performs syntax highlighting and search match highlighting on the
+    /// provided text. Does not access the filesystem, detect encoding,
+    /// or check for binary content — the caller is responsible for
+    /// providing the text to display.
+    ///
+    /// This is the core rendering pipeline. Use [`load_preview`] when you
+    /// need to read a file from disk first, or call this directly when
+    /// you already have the text (e.g., from a search result).
+    pub fn generate_preview(&self, text: &str, path: &Path, query: &str) -> PreviewOutput {
+        let lines = self.highlight_content(text, path);
+        let mut output = PreviewOutput {
+            path: path.to_path_buf(),
+            lines,
+            truncated: false,
+            encoding: Encoding::Utf8,
+            is_binary: false,
+            error: None,
+            original_size: text.len() as u64,
+        };
+        self.apply_search_highlights(&mut output, query);
+        output
+    }
+
+    /// Loads a file from disk and generates a preview.
+    ///
+    /// Reads the file, detects encoding, checks for binary content,
+    /// and delegates to [`generate_preview`] for syntax highlighting
+    /// and search match highlighting. Results are cached to avoid
+    /// redundant file I/O.
+    pub fn load_preview(&self, path: &Path, query: &str) -> PreviewOutput {
         // Check cache first
         {
             let cache = self.cache.lock().unwrap_or_else(|e| e.into_inner());
             if let Some((cached_path, cached_output)) = cache.as_ref() {
                 if cached_path == path && cached_output.error.is_none() {
                     let mut output = cached_output.clone();
-                    self.apply_search_highlights(&mut output, search_query);
+                    self.apply_search_highlights(&mut output, query);
                     return output;
                 }
             }
@@ -123,7 +150,7 @@ impl PreviewService {
         let load_result = loader::load_file(path, &load_config);
 
         if load_result.is_binary {
-            let output = PreviewOutput {
+            return PreviewOutput {
                 path: path.to_path_buf(),
                 lines: Vec::new(),
                 truncated: false,
@@ -132,7 +159,6 @@ impl PreviewService {
                 error: Some("Binary file preview is not available.".to_string()),
                 original_size: load_result.original_size,
             };
-            return output;
         }
 
         if let Some(error) = &load_result.error {
@@ -147,19 +173,10 @@ impl PreviewService {
             };
         }
 
-        let lines = self.highlight_content(&load_result.content, path);
-
-        let mut output = PreviewOutput {
-            path: path.to_path_buf(),
-            lines,
-            truncated: load_result.truncated,
-            encoding: load_result.encoding,
-            is_binary: false,
-            error: None,
-            original_size: load_result.original_size,
-        };
-
-        self.apply_search_highlights(&mut output, search_query);
+        let mut output = self.generate_preview(&load_result.content, path, query);
+        output.truncated = load_result.truncated;
+        output.encoding = load_result.encoding;
+        output.original_size = load_result.original_size;
 
         // Update cache
         {
@@ -372,6 +389,56 @@ mod tests {
 
         let service = PreviewService::new(PreviewConfig::default());
         let output = service.load_preview(&path, "hello");
+
+        assert!(!output.lines[0].match_highlights.is_empty());
+    }
+
+    #[test]
+    fn generate_preview_basic() {
+        let service = PreviewService::with_default_config();
+        let output = service.generate_preview("Hello, world!", Path::new("test.txt"), "");
+
+        assert!(output.error.is_none());
+        assert!(!output.is_binary);
+        assert!(!output.lines.is_empty());
+        assert_eq!(output.lines[0].text, "Hello, world!");
+        assert_eq!(output.lines[0].line_number, 1);
+    }
+
+    #[test]
+    fn generate_preview_with_query() {
+        let service = PreviewService::with_default_config();
+        let output = service.generate_preview("Hello world", Path::new("test.txt"), "world");
+
+        assert!(!output.lines[0].match_highlights.is_empty());
+        assert_eq!(output.lines[0].match_highlights[0].text, "world");
+    }
+
+    #[test]
+    fn generate_preview_multiline() {
+        let service = PreviewService::with_default_config();
+        let output = service.generate_preview("line 1\nline 2\nline 3", Path::new("test.txt"), "");
+
+        assert_eq!(output.lines.len(), 3);
+        assert_eq!(output.lines[0].line_number, 1);
+        assert_eq!(output.lines[1].line_number, 2);
+        assert_eq!(output.lines[2].line_number, 3);
+    }
+
+    #[test]
+    fn generate_preview_empty_query() {
+        let service = PreviewService::with_default_config();
+        let output = service.generate_preview("Hello", Path::new("test.txt"), "");
+
+        for line in &output.lines {
+            assert!(line.match_highlights.is_empty());
+        }
+    }
+
+    #[test]
+    fn generate_preview_case_insensitive_search() {
+        let service = PreviewService::with_default_config();
+        let output = service.generate_preview("Hello World", Path::new("test.txt"), "hello");
 
         assert!(!output.lines[0].match_highlights.is_empty());
     }
