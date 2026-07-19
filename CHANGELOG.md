@@ -1,3 +1,26 @@
+## [0.2.0] - 2026-07-19
+
+### Bug Fixes
+
+- *(ci)* Resolve Windows GTK4 DLL collection failure (#36)
+- *(gui)* Suppress console window on Windows release builds (#38)
+
+### Documentation
+
+- Initialize git-cliff configuration and generate CHANGELOG for v0.1.0 (#35)
+
+### Features
+
+- *(gui)* Replace GTK file chooser with rfd native dialog (#41)
+- *(gui)* Add first-run empty state for unconfigured applications (#46)
+
+### Miscellaneous Tasks
+
+- Strip release step and configure artifact upload for windows testing (#43)
+
+### Refactor
+
+- *(preview)* Unify preview rendering on indexed content (#45)
 ## [0.1.0] - 2026-07-15
 
 ### Bug Fixes
