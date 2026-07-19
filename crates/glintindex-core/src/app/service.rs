@@ -573,6 +573,11 @@ impl ApplicationService {
         self.config.enabled_folders()
     }
 
+    /// Returns whether at least one enabled indexed folder is configured.
+    pub fn has_enabled_folders(&self) -> bool {
+        !self.enabled_folders().is_empty()
+    }
+
     /// Returns the path where the search index is stored.
     pub fn index_path(&self) -> &Path {
         &self.index_path
@@ -952,6 +957,32 @@ mod tests {
         let config = indexed_folder_config(&tmp, folders);
         let service = ApplicationService::new(config).unwrap();
         assert_eq!(service.enabled_folders().len(), 1);
+    }
+
+    #[test]
+    fn has_enabled_folders_true_when_enabled_exists() {
+        let tmp = TempDir::new().unwrap();
+        let folders = vec![IndexedFolder::enabled(tmp.path().join("a"))];
+        let config = indexed_folder_config(&tmp, folders);
+        let service = ApplicationService::new(config).unwrap();
+        assert!(service.has_enabled_folders());
+    }
+
+    #[test]
+    fn has_enabled_folders_false_when_all_disabled() {
+        let tmp = TempDir::new().unwrap();
+        let folders = vec![IndexedFolder::disabled(tmp.path().join("a"))];
+        let config = indexed_folder_config(&tmp, folders);
+        let service = ApplicationService::new(config).unwrap();
+        assert!(!service.has_enabled_folders());
+    }
+
+    #[test]
+    fn has_enabled_folders_false_when_empty() {
+        let tmp = TempDir::new().unwrap();
+        let config = indexed_folder_config(&tmp, vec![]);
+        let service = ApplicationService::new(config).unwrap();
+        assert!(!service.has_enabled_folders());
     }
 
     #[test]
