@@ -46,3 +46,13 @@ codegen-units = 1
 lto = "thin"
 opt-level = 3
 strip = true
+
+[workspace.metadata.release]
+# Custom prefix for your Git tags (default is empty or the version number)
+tag-prefix = "v"
+# Automatically push to your remote repository after committing and tagging
+push = false
+# Skip publishing to crates.io (useful for private binaries/libraries)
+publish = false
+# Explicitly forces all workspace members to bump version together
+shared-version = true
