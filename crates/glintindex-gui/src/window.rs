@@ -200,12 +200,12 @@ impl GlintIndexWindow {
             });
         }
 
-        // Search bar + settings button
-        let (header, settings_btn) = ui::search_bar::build(&state, &results_listbox);
+        // Toolbar with settings button and search entry
+        let (toolbar, settings_btn) = ui::toolbar::build_toolbar(&state, &results_listbox);
 
         // Main vertical layout
         let content = GtkBox::new(Orientation::Vertical, 4);
-        content.prepend(&header);
+        content.prepend(&toolbar);
         content.append(&paned);
         content.append(&status_bar);
 
