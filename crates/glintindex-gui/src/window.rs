@@ -142,8 +142,18 @@ impl GlintIndexWindow {
                         open_folder_btn_clone.set_sensitive(true);
                         copy_path_btn_clone.set_sensitive(true);
 
-                        // Load preview synchronously (fast with cached SyntaxHighlighter)
-                        let output = st.preview_service.load_preview(&path, &st.query);
+                        // Load preview — use indexed text when available for consistency
+                        // with search results, fall back to disk for edge cases
+                        // (empty files indexed via watcher, corrupt stored fields).
+                        let output = if !st.results[index].document.content.is_empty() {
+                            st.preview_service.generate_preview(
+                                &st.results[index].document.content,
+                                &path,
+                                &st.query,
+                            )
+                        } else {
+                            st.preview_service.load_preview(&path, &st.query)
+                        };
                         st.preview_text = format_preview_content(&output);
 
                         // Update the actual TextBuffer so the preview pane shows content
