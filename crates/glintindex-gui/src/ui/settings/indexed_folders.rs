@@ -8,12 +8,15 @@ use std::rc::Rc;
 
 use gtk::glib;
 use gtk::prelude::*;
-use gtk::{Box as GtkBox, Button, Label, ListBox, Orientation, Separator, Window};
+use gtk::{Box as GtkBox, Button, Label, ListBox, Orientation, Separator, Stack, Window};
 
 use crate::window::WindowState;
 
 /// Builds the Indexed Folders settings page.
-pub fn build(state: &Rc<RefCell<WindowState>>, _parent: &Window) -> GtkBox {
+///
+/// `view_stack` is the main window's content stack, used to switch back
+/// to the empty state when the last folder is removed.
+pub fn build(state: &Rc<RefCell<WindowState>>, _parent: &Window, view_stack: gtk::Stack) -> GtkBox {
     let content = GtkBox::new(Orientation::Vertical, 12);
     content.set_margin_top(16);
     content.set_margin_bottom(16);
@@ -38,9 +41,11 @@ pub fn build(state: &Rc<RefCell<WindowState>>, _parent: &Window) -> GtkBox {
 
     let state_clone = state.clone();
     let listbox_for_add = listbox.clone();
+    let view_stack_for_add = view_stack.clone();
     add_btn.connect_clicked(move |_| {
         let state_clone = state_clone.clone();
         let listbox_clone = listbox_for_add.clone();
+        let view_stack_clone = view_stack_for_add.clone();
         glib::spawn_future_local(async move {
             tracing::debug!("Opening folder selection dialog");
             let dialog = rfd::AsyncFileDialog::new()
@@ -70,7 +75,8 @@ pub fn build(state: &Rc<RefCell<WindowState>>, _parent: &Window) -> GtkBox {
                         );
                     } else {
                         tracing::info!(path = %path.display(), "Folder added");
-                        refresh_folder_list(&state_clone, &listbox_clone);
+                        refresh_folder_list(&state_clone, &listbox_clone, view_stack_clone.clone());
+                        view_stack_clone.set_visible_child_name("main");
                     }
                 }
                 None => {
@@ -84,8 +90,9 @@ pub fn build(state: &Rc<RefCell<WindowState>>, _parent: &Window) -> GtkBox {
 
     let state_clone = state.clone();
     let listbox_clone = listbox.clone();
+    let view_stack_clone = view_stack.clone();
     gtk::glib::idle_add_local(move || {
-        refresh_folder_list(&state_clone, &listbox_clone);
+        refresh_folder_list(&state_clone, &listbox_clone, view_stack_clone.clone());
         gtk::glib::ControlFlow::Break
     });
 
@@ -110,7 +117,10 @@ pub fn build(state: &Rc<RefCell<WindowState>>, _parent: &Window) -> GtkBox {
 }
 
 /// Refreshes the folder list from the current state.
-pub fn refresh_folder_list(state: &Rc<RefCell<WindowState>>, listbox: &ListBox) {
+///
+/// `view_stack` is the main window's content stack, used to switch between
+/// the empty state and the main UI when folders are added or removed.
+pub fn refresh_folder_list(state: &Rc<RefCell<WindowState>>, listbox: &ListBox, view_stack: Stack) {
     // Clear existing rows
     while let Some(child) = listbox.first_child() {
         listbox.remove(&child);
@@ -147,6 +157,7 @@ pub fn refresh_folder_list(state: &Rc<RefCell<WindowState>>, listbox: &ListBox) 
         let state_clone = state.clone();
         let path_clone = path_display.clone();
         let listbox_clone = listbox.clone();
+        let view_stack_for_toggle = view_stack.clone();
         toggle_btn.connect_clicked(move |_| {
             let mut st = state_clone.borrow_mut();
             let path = std::path::PathBuf::from(&path_clone);
@@ -168,7 +179,7 @@ pub fn refresh_folder_list(state: &Rc<RefCell<WindowState>>, listbox: &ListBox) 
                 }
             }
             drop(st);
-            refresh_folder_list(&state_clone, &listbox_clone);
+            refresh_folder_list(&state_clone, &listbox_clone, view_stack_for_toggle.clone());
         });
         row_box.append(&toggle_btn);
 
@@ -181,6 +192,7 @@ pub fn refresh_folder_list(state: &Rc<RefCell<WindowState>>, listbox: &ListBox) 
         let state_clone = state.clone();
         let path_clone = path_display.clone();
         let listbox_clone = listbox.clone();
+        let view_stack_clone = view_stack.clone();
         remove_btn.connect_clicked(move |_| {
             let mut st = state_clone.borrow_mut();
             let path = std::path::PathBuf::from(&path_clone);
@@ -192,8 +204,10 @@ pub fn refresh_folder_list(state: &Rc<RefCell<WindowState>>, listbox: &ListBox) 
                     st.status = format!("Failed to remove: {e}");
                 }
             }
+            let has_enabled = st.service.has_enabled_folders();
             drop(st);
-            refresh_folder_list(&state_clone, &listbox_clone);
+            refresh_folder_list(&state_clone, &listbox_clone, view_stack_clone.clone());
+            view_stack_clone.set_visible_child_name(if has_enabled { "main" } else { "empty" });
         });
         row_box.append(&remove_btn);
 

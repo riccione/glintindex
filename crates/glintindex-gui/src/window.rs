@@ -1,15 +1,10 @@
-//! Main application window.
-//!
-//! Creates the primary application window with header bar, search,
-//! split view (results + preview), and status bar.
-
 use std::cell::RefCell;
 use std::rc::Rc;
 
 use gtk::prelude::*;
 use gtk::{
     Application, ApplicationWindow, Box as GtkBox, Button, Orientation, Paned, PolicyType,
-    ScrolledWindow, TextBuffer, Window,
+    ScrolledWindow, Stack, TextBuffer, Window,
 };
 
 use glintindex_core::{ApplicationService, PreviewService, SearchResult};
@@ -22,6 +17,23 @@ pub struct GlintIndexWindow {
     window: ApplicationWindow,
     #[allow(dead_code)]
     state: Rc<RefCell<WindowState>>,
+    _main_content: MainContent,
+}
+
+/// UI controller for switching between empty state and main content views.
+struct MainContent {
+    stack: Stack,
+}
+
+impl MainContent {
+    fn refresh(&self, service: &ApplicationService) {
+        self.stack
+            .set_visible_child_name(if service.has_enabled_folders() {
+                "main"
+            } else {
+                "empty"
+            });
+    }
 }
 
 /// Mutable application state held inside the window.
@@ -55,7 +67,6 @@ impl GlintIndexWindow {
 
         let theme = service.config().theme;
         let font_size = service.config().clamped_font_size();
-        let status = compute_status(&service);
 
         let statistics = service.statistics().ok();
         let state = Rc::new(RefCell::new(WindowState {
@@ -64,7 +75,7 @@ impl GlintIndexWindow {
             query: String::new(),
             results: Vec::new(),
             selected_index: None,
-            status,
+            status: "Ready".to_string(),
             preview_text: String::new(),
             progress_active: false,
             progress_message: String::new(),
@@ -109,8 +120,8 @@ impl GlintIndexWindow {
             .child(&preview_widget)
             .vscrollbar_policy(PolicyType::Automatic)
             .hscrollbar_policy(PolicyType::Automatic)
-            .vexpand(true) // Forces scroll view to fill available height
-            .hexpand(true) // Ensures horizontal stretch is resolved
+            .vexpand(true)
+            .hexpand(true)
             .build();
 
         // Preview pane: Scrollable preview (top) + static action bar (bottom)
@@ -213,20 +224,40 @@ impl GlintIndexWindow {
         // Toolbar with settings button and search entry
         let (toolbar, settings_btn) = ui::toolbar::build_toolbar(&state, &results_listbox);
 
-        // Main vertical layout
-        let content = GtkBox::new(Orientation::Vertical, 4);
-        content.prepend(&toolbar);
-        content.append(&paned);
-        content.append(&status_bar);
+        // ── Content stack: empty state or main UI ──────────────────
+        let content_stack = Stack::builder().build();
+        let view_stack = content_stack.clone();
 
-        // Create the window
+        // Create the window first so empty_state can reference it
         let window = ApplicationWindow::builder()
             .application(app)
             .title("GlintIndex")
             .default_width(1000)
             .default_height(700)
-            .child(&content)
             .build();
+
+        // Main vertical layout (toolbar + paned + status bar)
+        let main_content = GtkBox::new(Orientation::Vertical, 4);
+        main_content.prepend(&toolbar);
+        main_content.append(&paned);
+        main_content.append(&status_bar);
+
+        // Empty state (shown when no indexed folders configured)
+        let empty_state = ui::empty_state::build(&state, &window, view_stack.clone());
+
+        content_stack.add_named(&empty_state, Some("empty"));
+        content_stack.add_named(&main_content, Some("main"));
+
+        let main_content_ctrl = MainContent {
+            stack: content_stack.clone(),
+        };
+        {
+            let st = state.borrow();
+            main_content_ctrl.refresh(&st.service);
+        }
+
+        window.set_child(Some(&content_stack));
+
         // Wire up action button click handlers (after window creation for clipboard access)
         {
             let state_clone = state.clone();
@@ -291,6 +322,7 @@ impl GlintIndexWindow {
         {
             let window_clone = window.clone();
             let state_clone = state.clone();
+            let view_stack_clone = view_stack.clone();
             settings_btn.connect_clicked(move |_| {
                 let window_to_close = {
                     let st = state_clone.borrow();
@@ -302,12 +334,21 @@ impl GlintIndexWindow {
                     let mut st = state_clone.borrow_mut();
                     st.settings_window = None;
                 } else {
-                    ui::settings::show_settings(&window_clone, &state_clone);
+                    ui::settings::show_settings(
+                        &window_clone,
+                        &state_clone,
+                        None,
+                        view_stack_clone.clone(),
+                    );
                 }
             });
         }
 
-        Self { window, state }
+        Self {
+            window,
+            state,
+            _main_content: main_content_ctrl,
+        }
     }
 
     /// Presents the window to the user.
@@ -326,20 +367,6 @@ impl WindowState {
     /// Refreshes the cached statistics from the service.
     pub fn refresh_statistics(&mut self) {
         self.statistics = self.service.statistics().ok();
-    }
-}
-
-/// Computes the initial status message from the service.
-fn compute_status(service: &ApplicationService) -> String {
-    let folder_count = service.indexed_folders().len();
-    if folder_count == 0 {
-        "No folders configured".to_string()
-    } else {
-        format!(
-            "Ready — {} folder{} configured",
-            folder_count,
-            if folder_count == 1 { "" } else { "s" }
-        )
     }
 }
 
