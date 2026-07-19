@@ -1,13 +1,9 @@
 /* Dark theme for GlintIndex */
 
-/* Window header bar */
-headerbar {
-    background-color: #2d2d2d;
-    color: #e0e0e0;
-}
-
-headerbar title {
-    color: #e0e0e0;
+/* Application toolbar */
+.toolbar {
+    border-bottom: 1px solid #404040;
+    padding: 6px;
 }
 
 /* Application window */

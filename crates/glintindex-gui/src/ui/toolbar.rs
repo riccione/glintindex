@@ -1,29 +1,31 @@
-//! Search bar UI component.
+//! Application toolbar.
 //!
-//! Provides the search input field and settings button in the header.
+//! Provides the settings button and search entry in a toolbar below the
+//! native OS title bar. Replaces the previous GtkHeaderBar-based title bar.
 
 use std::cell::RefCell;
 use std::rc::Rc;
 
 use gtk::prelude::*;
-use gtk::{Box as GtkBox, Button, HeaderBar, Label, ListBox, SearchEntry};
+use gtk::{Box as GtkBox, Button, ListBox, SearchEntry};
 
 use crate::ui::results;
 use crate::window::WindowState;
 
-/// Builds the header bar containing the settings button and search entry.
-pub fn build(state: &Rc<RefCell<WindowState>>, results_listbox: &ListBox) -> (HeaderBar, Button) {
+/// Builds the toolbar containing the settings button, spacer, and search entry.
+pub fn build_toolbar(
+    state: &Rc<RefCell<WindowState>>,
+    results_listbox: &ListBox,
+) -> (GtkBox, Button) {
     let settings_btn = Button::builder().label("Settings").build();
 
     let search_entry = SearchEntry::builder()
-        .hexpand(true)
         .placeholder_text("Search files…")
+        .hexpand(true)
         .build();
 
-    // Clone the listbox for the search callback
     let listbox_for_search = results_listbox.clone();
 
-    // Connect search entry changes
     let state_clone = state.clone();
     search_entry.connect_changed(move |entry| {
         let query = entry.text().to_string();
@@ -38,7 +40,6 @@ pub fn build(state: &Rc<RefCell<WindowState>>, results_listbox: &ListBox) -> (He
             return;
         }
 
-        // Execute search synchronously (fast for local Tantivy index)
         let query_obj = glintindex_core::SearchQuery::new(&query);
         match st.service.search(&query_obj) {
             Ok(results) => {
@@ -61,7 +62,6 @@ pub fn build(state: &Rc<RefCell<WindowState>>, results_listbox: &ListBox) -> (He
         }
     });
 
-    // Connect search entry activation (Enter key)
     let state_clone = state.clone();
     let listbox_for_activate = results_listbox.clone();
     search_entry.connect_activate(move |entry| {
@@ -93,13 +93,17 @@ pub fn build(state: &Rc<RefCell<WindowState>>, results_listbox: &ListBox) -> (He
         }
     });
 
-    let title_widget = GtkBox::new(gtk::Orientation::Horizontal, 8);
-    title_widget.append(&Label::builder().label("GlintIndex").build());
-    title_widget.append(&search_entry);
+    let left_tools = GtkBox::new(gtk::Orientation::Horizontal, 4);
+    left_tools.append(&settings_btn);
 
-    let header = HeaderBar::builder().title_widget(&title_widget).build();
+    let spacer = GtkBox::new(gtk::Orientation::Horizontal, 0);
+    spacer.set_hexpand(true);
 
-    header.pack_start(&settings_btn);
+    let toolbar = GtkBox::new(gtk::Orientation::Horizontal, 6);
+    toolbar.add_css_class("toolbar");
+    toolbar.append(&left_tools);
+    toolbar.append(&spacer);
+    toolbar.append(&search_entry);
 
-    (header, settings_btn)
+    (toolbar, settings_btn)
 }
