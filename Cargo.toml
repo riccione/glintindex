@@ -49,7 +49,7 @@ strip = true
 
 [workspace.metadata.release]
 # Custom prefix for your Git tags (default is empty or the version number)
-tag-prefix = "v"
+tag-prefix = ""
 # Automatically push to your remote repository after committing and tagging
 push = false
 # Skip publishing to crates.io (useful for private binaries/libraries)
