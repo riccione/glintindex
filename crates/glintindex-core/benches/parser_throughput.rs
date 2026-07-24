@@ -20,16 +20,22 @@ fn bench_parsers(_c: &mut Criterion) {
         let content = "The quick brown fox jumps over the lazy dog. ".repeat(*repeat_count);
         let bytes = content.as_bytes();
         let path = PathBuf::from(format!("test_{size_name}.txt"));
+        let parser = registry.parser_for(&path);
 
         group.throughput(Throughput::Bytes(bytes.len() as u64));
         group.bench_function(format!("text_{size_name}"), |b| {
-            let parser = registry.parser_for(&path);
-            b.iter(|| parser.parse(bytes, &path).unwrap());
+            b.iter(|| {
+                let result = parser.parse(bytes, &path);
+                std::hint::black_box(result)
+            });
         });
     }
 
     // ── Office format parsers (real files from bench_data/) ────
     let bench_data = bench_data_dir();
+    let mut executed = 0u32;
+    let mut skipped = 0u32;
+
     for (ext, name) in &[
         ("docx", "docx"),
         ("xlsx", "xlsx"),
@@ -39,17 +45,42 @@ fn bench_parsers(_c: &mut Criterion) {
         ("rtf", "rtf"),
     ] {
         let file_path = bench_data.join(format!("sample.{ext}"));
-        if file_path.exists() {
-            let bytes = std::fs::read(&file_path).unwrap();
-            group.throughput(Throughput::Bytes(bytes.len() as u64));
-            group.bench_function(*name, |b| {
-                let parser = registry.parser_for(&file_path);
-                b.iter(|| parser.parse(&bytes, &file_path).unwrap());
-            });
-        } else {
-            eprintln!("  skipping {name}: sample.{ext} not found in bench_data/");
+        if !file_path.exists() {
+            eprintln!(
+                "Skipping parser benchmark '{name}':\n    sample.{ext} not found in bench_data/"
+            );
+            skipped += 1;
+            continue;
         }
+        let bytes = match std::fs::read(&file_path) {
+            Ok(b) => b,
+            Err(err) => {
+                eprintln!(
+                    "Skipping parser benchmark '{name}':\n    sample.{ext} failed to read: {err}"
+                );
+                skipped += 1;
+                continue;
+            }
+        };
+        let parser = registry.parser_for(&file_path);
+        if let Err(err) = parser.parse(&bytes, &file_path) {
+            eprintln!(
+                "Skipping parser benchmark '{name}':\n    sample.{ext} failed to parse: {err}"
+            );
+            skipped += 1;
+            continue;
+        }
+        group.throughput(Throughput::Bytes(bytes.len() as u64));
+        group.bench_function(*name, |b| {
+            b.iter(|| {
+                let result = parser.parse(&bytes, &file_path);
+                std::hint::black_box(result)
+            });
+        });
+        executed += 1;
     }
+
+    eprintln!("Parser benchmarks: executed: {executed}, skipped: {skipped}");
 
     group.finish();
 }
