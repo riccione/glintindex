@@ -4,7 +4,7 @@ mod common;
 
 use std::path::Path;
 
-use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
+use criterion::{BatchSize, Criterion, Throughput, criterion_group, criterion_main};
 
 use glintindex_core::{FilesystemScanner, IndexService};
 
@@ -29,6 +29,25 @@ fn index_incremental(data_dir: &Path, index_dir: &Path) {
     service.commit().unwrap();
 }
 
+/// Sum of all file sizes in a directory tree.
+fn dir_total_bytes(path: &Path) -> u64 {
+    let mut total = 0u64;
+    let mut stack = vec![path.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        if let Ok(entries) = std::fs::read_dir(&dir) {
+            for entry in entries.flatten() {
+                let p = entry.path();
+                if p.is_dir() {
+                    stack.push(p);
+                } else if let Ok(meta) = entry.metadata() {
+                    total += meta.len();
+                }
+            }
+        }
+    }
+    total
+}
+
 fn bench_indexing_cold(_c: &mut Criterion) {
     // ── Slow benchmarks (>500ms per iteration) ─────────────────
     let mut slow_criterion = slow_criterion_config();
@@ -46,6 +65,8 @@ fn bench_indexing_cold(_c: &mut Criterion) {
             create_text_dataset(data_dir.path(), *count, *size);
         }
 
+        let total_bytes = (*count * *size) as u64;
+        slow_group.throughput(Throughput::Bytes(total_bytes));
         slow_group.bench_function(*name, |b| {
             b.iter_batched(
                 || {
@@ -61,6 +82,8 @@ fn bench_indexing_cold(_c: &mut Criterion) {
     }
 
     for (name, path) in real_world_datasets() {
+        let total = dir_total_bytes(&path);
+        slow_group.throughput(Throughput::Bytes(total));
         slow_group.bench_function(name, |b| {
             b.iter_batched(
                 || {
@@ -84,6 +107,7 @@ fn bench_indexing_cold(_c: &mut Criterion) {
     let data_dir = tempfile::tempdir().unwrap();
     create_text_dataset(data_dir.path(), 1_000, 1024);
 
+    group.throughput(Throughput::Bytes(1_000 * 1024));
     group.bench_function("1k_text_1kb", |b| {
         b.iter_batched(
             || {
@@ -114,6 +138,8 @@ fn bench_indexing_incremental(_c: &mut Criterion) {
         let idx_dir = tempfile::tempdir().unwrap();
         index_cold(data_dir.path(), &idx_dir.path().join("idx"));
 
+        let total_bytes = (*count * *size) as u64;
+        group.throughput(Throughput::Bytes(total_bytes));
         group.bench_function(*name, |b| {
             b.iter_batched(
                 || {
@@ -135,6 +161,8 @@ fn bench_indexing_incremental(_c: &mut Criterion) {
         let idx_dir = tempfile::tempdir().unwrap();
         index_cold(&path, &idx_dir.path().join("idx"));
 
+        let total = dir_total_bytes(&path);
+        group.throughput(Throughput::Bytes(total));
         group.bench_function(name, |b| {
             b.iter_batched(
                 || {
