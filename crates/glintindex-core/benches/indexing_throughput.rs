@@ -51,12 +51,12 @@ fn dir_total_bytes(path: &Path) -> u64 {
 fn bench_indexing_cold(_c: &mut Criterion) {
     // ── Slow benchmarks (>500ms per iteration) ─────────────────
     let mut slow_criterion = slow_criterion_config();
-    let mut slow_group = slow_criterion.benchmark_group("indexing_cold");
+    let mut slow_group = slow_criterion.benchmark_group("indexing/cold");
 
     for (name, count, size) in &[
-        ("10k_mixed", 10_000usize, 512usize),
-        ("100k_tiny_50b", 100_000, 50),
-        ("100k_small_1kb", 100_000, 1024),
+        ("10k_512b", 10_000usize, 512usize),
+        ("100k_50b", 100_000, 50),
+        ("100k_1kb", 100_000, 1024),
     ] {
         let data_dir = tempfile::tempdir().unwrap();
         if *count == 10_000 {
@@ -102,13 +102,13 @@ fn bench_indexing_cold(_c: &mut Criterion) {
 
     // ── Fast benchmarks (<500ms per iteration) ─────────────────
     let mut criterion = criterion_config();
-    let mut group = criterion.benchmark_group("indexing_cold");
+    let mut group = criterion.benchmark_group("indexing/cold");
 
     let data_dir = tempfile::tempdir().unwrap();
     create_text_dataset(data_dir.path(), 1_000, 1024);
 
     group.throughput(Throughput::Bytes(1_000 * 1024));
-    group.bench_function("1k_text_1kb", |b| {
+    group.bench_function("1k_1kb", |b| {
         b.iter_batched(
             || {
                 let idx = tempfile::tempdir().unwrap();
@@ -126,11 +126,11 @@ fn bench_indexing_cold(_c: &mut Criterion) {
 
 fn bench_indexing_incremental(_c: &mut Criterion) {
     let mut criterion = criterion_config();
-    let mut group = criterion.benchmark_group("indexing_incremental");
+    let mut group = criterion.benchmark_group("indexing/incremental");
 
     for (name, count, size) in &[
-        ("1k_text_1kb", 1_000usize, 1024usize),
-        ("100k_small_1kb", 100_000, 1024),
+        ("1k_1kb", 1_000usize, 1024usize),
+        ("100k_1kb", 100_000, 1024),
     ] {
         // Pre-build index BEFORE timing
         let data_dir = tempfile::tempdir().unwrap();
