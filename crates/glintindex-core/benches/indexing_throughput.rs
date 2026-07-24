@@ -49,6 +49,7 @@ fn dir_total_bytes(path: &Path) -> u64 {
 }
 
 fn bench_indexing_cold(_c: &mut Criterion) {
+    common::write_metadata();
     // ── Slow benchmarks (>500ms per iteration) ─────────────────
     let mut slow_criterion = slow_criterion_config();
     let mut slow_group = slow_criterion.benchmark_group("indexing/cold");
@@ -125,6 +126,7 @@ fn bench_indexing_cold(_c: &mut Criterion) {
 }
 
 fn bench_indexing_incremental(_c: &mut Criterion) {
+    common::write_metadata();
     let mut criterion = criterion_config();
     let mut group = criterion.benchmark_group("indexing/incremental");
 

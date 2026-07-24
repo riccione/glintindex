@@ -378,7 +378,32 @@ cargo fmt --all
 cargo bench -p glintindex-core
 ```
 
-See [docs/benchmarking.md](docs/benchmarking.md) for detailed instructions on running benchmarks, configuring datasets, and interpreting results.
+Individual benchmark groups:
+
+```bash
+cargo bench -p glintindex-core --bench indexing_throughput
+cargo bench -p glintindex-core --bench parser_throughput
+cargo bench -p glintindex-core --bench search_latency
+```
+
+Filter specific benchmarks:
+
+```bash
+cargo bench -p glintindex-core --bench indexing_throughput -- "indexing/cold/1k"
+cargo bench -p glintindex-core --bench parser_throughput -- text_1kb
+```
+
+HTML reports are generated in `target/criterion/`. Open `target/criterion/report/index.html` in a browser.
+
+System metadata (CPU, RAM, OS, Rust version, commit hash) is written to `target/criterion/metadata.json` and printed at the start of each benchmark run.
+
+Real-world datasets can be included via environment variables:
+
+```bash
+BENCHMARK_KERNEL_PATH=/path/to/linux/kernel \
+BENCHMARK_RUST_STD_PATH=/path/to/rust/library \
+cargo bench -p glintindex-core
+```
 
 ## Contributing
 

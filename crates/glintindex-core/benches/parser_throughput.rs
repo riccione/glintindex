@@ -11,6 +11,7 @@ use glintindex_core::ParserRegistry;
 use common::{bench_data_dir, criterion_config};
 
 fn bench_parsers(_c: &mut Criterion) {
+    common::write_metadata();
     let mut criterion = criterion_config();
     let mut group = criterion.benchmark_group("parsers");
     let registry = ParserRegistry::new();

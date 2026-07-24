@@ -36,6 +36,7 @@ fn build_search_index(num_docs: usize) -> (IndexService, tempfile::TempDir) {
 }
 
 fn bench_search(_c: &mut Criterion) {
+    common::write_metadata();
     // Build index ONCE — not inside any b.iter()
     let (service, _tmp) = build_search_index(100_000);
 
