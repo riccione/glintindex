@@ -8,7 +8,10 @@ use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
 
 use glintindex_core::{FilesystemScanner, IndexService};
 
-use common::{create_mixed_dataset, create_text_dataset, criterion_config, real_world_datasets};
+use common::{
+    create_mixed_dataset, create_text_dataset, criterion_config, real_world_datasets,
+    slow_criterion_config,
+};
 
 /// Index a directory into a fresh index. Returns elapsed time.
 fn index_cold(data_dir: &Path, index_dir: &Path) {
@@ -27,17 +30,15 @@ fn index_incremental(data_dir: &Path, index_dir: &Path) {
 }
 
 fn bench_indexing_cold(_c: &mut Criterion) {
-    let mut criterion = criterion_config();
-    let mut group = criterion.benchmark_group("indexing_cold");
+    // ── Slow benchmarks (>500ms per iteration) ─────────────────
+    let mut slow_criterion = slow_criterion_config();
+    let mut slow_group = slow_criterion.benchmark_group("indexing_cold");
 
-    // ── Synthetic text datasets ────────────────────────────────
     for (name, count, size) in &[
-        ("1k_text_1kb", 1_000usize, 1024usize),
-        ("10k_mixed", 10_000, 512),
+        ("10k_mixed", 10_000usize, 512usize),
         ("100k_tiny_50b", 100_000, 50),
         ("100k_small_1kb", 100_000, 1024),
     ] {
-        // Dataset created OUTSIDE the timed loop
         let data_dir = tempfile::tempdir().unwrap();
         if *count == 10_000 {
             create_mixed_dataset(data_dir.path(), *count);
@@ -45,7 +46,7 @@ fn bench_indexing_cold(_c: &mut Criterion) {
             create_text_dataset(data_dir.path(), *count, *size);
         }
 
-        group.bench_function(*name, |b| {
+        slow_group.bench_function(*name, |b| {
             b.iter_batched(
                 || {
                     let idx = tempfile::tempdir().unwrap();
@@ -59,9 +60,8 @@ fn bench_indexing_cold(_c: &mut Criterion) {
         });
     }
 
-    // ── Real-world source trees ────────────────────────────────
     for (name, path) in real_world_datasets() {
-        group.bench_function(name, |b| {
+        slow_group.bench_function(name, |b| {
             b.iter_batched(
                 || {
                     let idx = tempfile::tempdir().unwrap();
@@ -74,6 +74,28 @@ fn bench_indexing_cold(_c: &mut Criterion) {
             );
         });
     }
+
+    slow_group.finish();
+
+    // ── Fast benchmarks (<500ms per iteration) ─────────────────
+    let mut criterion = criterion_config();
+    let mut group = criterion.benchmark_group("indexing_cold");
+
+    let data_dir = tempfile::tempdir().unwrap();
+    create_text_dataset(data_dir.path(), 1_000, 1024);
+
+    group.bench_function("1k_text_1kb", |b| {
+        b.iter_batched(
+            || {
+                let idx = tempfile::tempdir().unwrap();
+                (data_dir.path().to_path_buf(), idx)
+            },
+            |(data_path, idx_dir)| {
+                index_cold(&data_path, &idx_dir.path().join("idx"));
+            },
+            BatchSize::SmallInput,
+        );
+    });
 
     group.finish();
 }

@@ -129,12 +129,21 @@ pub fn format_bytes(bytes: u64) -> String {
     }
 }
 
-/// Criterion configuration: warm_up=3s, measurement=15s, samples=50.
+/// Default Criterion configuration: warm_up=3s, measurement=15s, samples=50.
 pub fn criterion_config() -> Criterion {
     Criterion::default()
         .warm_up_time(Duration::from_secs(3))
         .measurement_time(Duration::from_secs(15))
         .sample_size(50)
+}
+
+/// Configuration for slow benchmarks (>500ms per iteration).
+/// Uses fewer samples and longer measurement time to avoid warnings.
+pub fn slow_criterion_config() -> Criterion {
+    Criterion::default()
+        .warm_up_time(Duration::from_secs(3))
+        .measurement_time(Duration::from_secs(60))
+        .sample_size(10)
 }
 
 /// Returns the path to the bench_data directory.
