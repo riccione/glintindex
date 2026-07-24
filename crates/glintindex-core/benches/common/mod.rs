@@ -65,6 +65,28 @@ pub fn create_mixed_dataset(dir: &Path, count: usize) {
     }
 }
 
+/// Creates `count` copies of sample.pdf with unique names.
+pub fn create_pdf_dataset(dir: &Path, count: usize) {
+    let src = bench_data_dir().join("sample.pdf");
+    let bytes = fs::read(&src).expect("sample.pdf not found in bench_data/");
+    fs::create_dir_all(dir).expect("failed to create dataset dir");
+    for i in 0..count {
+        let path = dir.join(format!("doc_{i:06}.pdf"));
+        fs::write(&path, &bytes).expect("failed to write PDF");
+    }
+}
+
+/// Creates `count` copies of sample.docx with unique names.
+pub fn create_docx_dataset(dir: &Path, count: usize) {
+    let src = bench_data_dir().join("sample.docx");
+    let bytes = fs::read(&src).expect("sample.docx not found in bench_data/");
+    fs::create_dir_all(dir).expect("failed to create dataset dir");
+    for i in 0..count {
+        let path = dir.join(format!("doc_{i:06}.docx"));
+        fs::write(&path, &bytes).expect("failed to write DOCX");
+    }
+}
+
 /// Returns paths to real-world source trees if env vars are set.
 ///
 /// Checks `BENCHMARK_KERNEL_PATH` and `BENCHMARK_RUST_STD_PATH`.

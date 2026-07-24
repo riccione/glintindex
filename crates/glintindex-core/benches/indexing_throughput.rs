@@ -2,6 +2,7 @@
 
 mod common;
 
+use std::fs;
 use std::path::Path;
 
 use criterion::{BatchSize, Criterion, Throughput, criterion_group, criterion_main};
@@ -9,8 +10,8 @@ use criterion::{BatchSize, Criterion, Throughput, criterion_group, criterion_mai
 use glintindex_core::{FilesystemScanner, IndexService};
 
 use common::{
-    create_mixed_dataset, create_text_dataset, criterion_config, real_world_datasets,
-    slow_criterion_config,
+    bench_data_dir, create_docx_dataset, create_mixed_dataset, create_pdf_dataset,
+    create_text_dataset, criterion_config, real_world_datasets, slow_criterion_config,
 };
 
 /// Index a directory into a fresh index. Returns elapsed time.
@@ -81,6 +82,46 @@ fn bench_indexing_cold(_c: &mut Criterion) {
             );
         });
     }
+
+    // ── PDF dataset ─────────────────────────────────────────────
+    let data_dir = tempfile::tempdir().unwrap();
+    create_pdf_dataset(data_dir.path(), 10_000);
+    let pdf_bytes = fs::metadata(bench_data_dir().join("sample.pdf"))
+        .map(|m| m.len() * 10_000)
+        .unwrap_or(8_190_000);
+    slow_group.throughput(Throughput::Bytes(pdf_bytes));
+    slow_group.bench_function("10k_pdf", |b| {
+        b.iter_batched(
+            || {
+                let idx = tempfile::tempdir().unwrap();
+                (data_dir.path().to_path_buf(), idx)
+            },
+            |(data_path, idx_dir)| {
+                index_cold(&data_path, &idx_dir.path().join("idx"));
+            },
+            BatchSize::SmallInput,
+        );
+    });
+
+    // ── DOCX dataset ────────────────────────────────────────────
+    let data_dir = tempfile::tempdir().unwrap();
+    create_docx_dataset(data_dir.path(), 10_000);
+    let docx_bytes = fs::metadata(bench_data_dir().join("sample.docx"))
+        .map(|m| m.len() * 10_000)
+        .unwrap_or(11_180_000);
+    slow_group.throughput(Throughput::Bytes(docx_bytes));
+    slow_group.bench_function("10k_docx", |b| {
+        b.iter_batched(
+            || {
+                let idx = tempfile::tempdir().unwrap();
+                (data_dir.path().to_path_buf(), idx)
+            },
+            |(data_path, idx_dir)| {
+                index_cold(&data_path, &idx_dir.path().join("idx"));
+            },
+            BatchSize::SmallInput,
+        );
+    });
 
     for (name, path) in real_world_datasets() {
         let total = dir_total_bytes(&path);
