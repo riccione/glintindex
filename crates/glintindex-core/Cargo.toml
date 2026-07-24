@@ -42,3 +42,18 @@ rtf-parser = { workspace = true, optional = true }
 [dev-dependencies]
 serde_json = "1"
 tempfile = "3"
+criterion = { version = "0.8.2", features = ["html_reports"] }
+rand = "0.8"
+rand_chacha = "0.3"
+
+[[bench]]
+name = "indexing_throughput"
+harness = false
+
+[[bench]]
+name = "parser_throughput"
+harness = false
+
+[[bench]]
+name = "search_latency"
+harness = false

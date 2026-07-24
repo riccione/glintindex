@@ -372,6 +372,14 @@ cargo clippy --all-targets -- -D warnings
 cargo fmt --all
 ```
 
+### Benchmark
+
+```bash
+cargo bench -p glintindex-core
+```
+
+See [docs/benchmarking.md](docs/benchmarking.md) for detailed instructions on running benchmarks, configuring datasets, and interpreting results.
+
 ## Contributing
 
 1. Fork the repository
