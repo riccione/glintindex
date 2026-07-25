@@ -175,10 +175,9 @@ impl ApplicationService {
             .map_err(|e| GlintIndexError::Other(format!("index service lock poisoned: {e}")))?;
         let scanner =
             FilesystemScanner::with_custom_ignores(&service, &self.config.ignored_folders)
-                .with_progress(reporter);
+                .with_progress(reporter)
+                .with_commit_interval(self.config.commit_interval);
         let stats = scanner.scan_directory(folder)?;
-        service.commit()?;
-        service.reload_reader()?;
 
         tracing::info!(
             target: "glintindex::index",
@@ -190,6 +189,7 @@ impl ApplicationService {
             files_failed = stats.files_failed,
             parser_errors = stats.parser_errors,
             parser_panics = stats.parser_panics,
+            commits = stats.commits,
             "indexing folder completed"
         );
 
@@ -231,7 +231,8 @@ impl ApplicationService {
             .map_err(|e| GlintIndexError::Other(format!("index service lock poisoned: {e}")))?;
         let scanner =
             FilesystemScanner::with_custom_ignores(&service, &self.config.ignored_folders)
-                .with_progress(reporter);
+                .with_progress(reporter)
+                .with_commit_interval(self.config.commit_interval);
         let folders: Vec<PathBuf> = self
             .config
             .enabled_folders()
@@ -239,8 +240,6 @@ impl ApplicationService {
             .map(|f| f.path.clone())
             .collect();
         let stats = scanner.scan_directories(&folders)?;
-        service.commit()?;
-        service.reload_reader()?;
 
         tracing::info!(
             target: "glintindex::index",
@@ -252,6 +251,7 @@ impl ApplicationService {
             files_failed = stats.files_failed,
             parser_errors = stats.parser_errors,
             parser_panics = stats.parser_panics,
+            commits = stats.commits,
             "indexing all folders completed"
         );
 

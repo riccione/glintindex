@@ -42,6 +42,9 @@ pub struct Progress {
     pub parser_errors: u64,
     /// Number of parser panics caught during extraction.
     pub parser_panics: u64,
+    /// Number of successful index commits performed during this scan,
+    /// including the final commit.
+    pub commits: u64,
     /// The path of the file currently being processed, if any.
     pub current_file: Option<String>,
 }
@@ -74,6 +77,7 @@ impl Progress {
             files_failed: stats.files_failed,
             parser_errors: stats.parser_errors,
             parser_panics: stats.parser_panics,
+            commits: stats.commits,
             current_file: None,
         }
     }
