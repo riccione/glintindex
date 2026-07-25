@@ -94,6 +94,7 @@ pub fn build(state: &Rc<RefCell<WindowState>>) -> GtkBox {
         match st.service.start_indexing() {
             Ok(_) => {
                 progress_clone.set_visible(true);
+                progress_clone.set_show_text(true);
                 progress_clone.set_fraction(0.0);
                 progress_clone.set_text(Some("Indexing..."));
             }
@@ -123,6 +124,7 @@ pub fn build(state: &Rc<RefCell<WindowState>>) -> GtkBox {
         match st.service.start_rebuild() {
             Ok(_) => {
                 progress_clone.set_visible(true);
+                progress_clone.set_show_text(true);
                 progress_clone.set_fraction(0.0);
                 progress_clone.set_text(Some("Rebuilding..."));
             }
@@ -187,16 +189,11 @@ fn schedule_progress_polling(
         }
         if let Some(progress) = st.service.current_progress() {
             st.status = progress.status_message.clone();
-            if let Some(total) = progress.total_files {
-                if total > 0 {
-                    let fraction = progress.files_processed as f64 / total as f64;
-                    progress_clone.set_fraction(fraction);
-                    progress_clone.set_text(Some(&format!(
-                        "{} / {} files",
-                        progress.files_processed, total
-                    )));
-                }
-            }
+            progress_clone.pulse();
+            progress_clone.set_text(Some(&format!(
+                "Processed: {} files",
+                progress.files_processed
+            )));
         }
         if !st.service.is_indexing() {
             // Store the completed job's progress for statistics display

@@ -22,7 +22,7 @@ pub fn execute(config_path: &str) -> Result<()> {
         println!("Re-indexing {} configured folders...\n", enabled_count);
 
         // Create progress reporter
-        let reporter = ProgressBarReporter::new(0);
+        let reporter = ProgressBarReporter::new();
 
         let results = service
             .index_all_with_progress(&reporter)
