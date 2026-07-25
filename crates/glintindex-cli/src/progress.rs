@@ -1,146 +1,117 @@
 //! CLI progress reporting using indicatif.
 //!
 //! Provides a [`ProgressBarReporter`] that implements the core
-//! [`ProgressReporter`] trait and displays a live progress bar
-//! using the `indicatif` crate.
+//! [`ProgressReporter`] trait and displays a live spinner with
+//! streaming statistics using the `indicatif` crate.
 
 use std::path::Path;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{Duration, Instant};
 
 use indicatif::{ProgressBar, ProgressStyle};
 
 use glintindex_core::scanner::ProgressReporter;
 
-/// A progress reporter that displays a live progress bar in the terminal.
+/// Minimum interval between terminal re-renders.
+const RENDER_INTERVAL: Duration = Duration::from_millis(100);
+
+/// A progress reporter that displays a live spinner in the terminal.
 ///
-/// Wraps an `indicatif::ProgressBar` and implements the core
-/// [`ProgressReporter`] trait. The scanner calls this reporter during
-/// file processing, and the progress bar updates in real-time.
+/// Wraps an `indicatif::ProgressBar` in spinner mode and implements the
+/// core [`ProgressReporter`] trait. The scanner calls this reporter
+/// during file processing, and the spinner updates with streaming
+/// statistics at most every 100ms.
 pub struct ProgressBarReporter {
     bar: ProgressBar,
-    total_hint: AtomicU64,
-    last_file: Mutex<String>,
+    processed: AtomicU64,
+    indexed: AtomicU64,
+    skipped: AtomicU64,
+    failed: AtomicU64,
+    last_render: Mutex<Instant>,
 }
 
 impl ProgressBarReporter {
-    /// Creates a new `ProgressBarReporter` with the given total file count.
-    ///
-    /// If `total` is 0 or unknown, a spinner-style progress indicator
-    /// is used instead of a determinate progress bar.
-    pub fn new(total: u64) -> Self {
-        let bar = if total > 0 {
-            let pb = ProgressBar::new(total);
-            let style = ProgressStyle::default_bar()
-                .template(
-                    "{prefix:.bold.dim} {spinner:.green} {bar:40.cyan/blue} {pos}/{len} {msg}",
-                )
-                .expect("valid template")
-                .progress_chars("█░░");
-            pb.set_style(style);
-            pb.set_prefix("Indexing");
-            pb
-        } else {
-            let pb = ProgressBar::new_spinner();
-            let style = ProgressStyle::default_spinner()
-                .template("{prefix:.bold.dim} {spinner:.green} {msg}")
-                .expect("valid template");
-            pb.set_style(style);
-            pb.set_prefix("Indexing");
-            pb
-        };
+    /// Creates a new `ProgressBarReporter` with a spinner indicator.
+    pub fn new() -> Self {
+        let bar = ProgressBar::new_spinner();
+        let style = ProgressStyle::default_spinner()
+            .template("{spinner:.green} {prefix:.bold.dim} {msg}")
+            .expect("valid template");
+        bar.set_style(style);
+        bar.set_prefix("Indexing");
 
         Self {
             bar,
-            total_hint: AtomicU64::new(total),
-            last_file: Mutex::new(String::new()),
+            processed: AtomicU64::new(0),
+            indexed: AtomicU64::new(0),
+            skipped: AtomicU64::new(0),
+            failed: AtomicU64::new(0),
+            last_render: Mutex::new(Instant::now()),
         }
     }
 
-    /// Finishes the progress bar with a clear.
+    /// Finishes the spinner and clears it.
     pub fn finish_and_clear(&self) {
         self.bar.finish_and_clear();
+    }
+
+    /// Renders the streaming statistics to the terminal if enough time
+    /// has passed since the last render.
+    fn maybe_render(&self) {
+        let now = Instant::now();
+        let mut last = self.last_render.lock().unwrap();
+        if now.duration_since(*last) >= RENDER_INTERVAL {
+            *last = now;
+            let processed = self.processed.load(Ordering::Relaxed);
+            let indexed = self.indexed.load(Ordering::Relaxed);
+            let skipped = self.skipped.load(Ordering::Relaxed);
+            let failed = self.failed.load(Ordering::Relaxed);
+            self.bar.set_message(format!(
+                "Processed: {processed} | Indexed: {indexed} | Skipped: {skipped} | Errors: {failed}"
+            ));
+        }
     }
 }
 
 impl ProgressReporter for ProgressBarReporter {
-    fn on_file_discovered(&self, _path: &Path) {
-        // Don't update on discovery - too frequent
+    fn on_file_discovered(&self, _path: &Path) {}
+
+    fn on_file_indexed(&self, _path: &Path) {
+        self.processed.fetch_add(1, Ordering::Relaxed);
+        self.indexed.fetch_add(1, Ordering::Relaxed);
+        self.bar.tick();
+        self.maybe_render();
     }
 
-    fn on_file_indexed(&self, path: &Path) {
-        let pos = self.bar.position();
-        self.bar.set_position(pos + 1);
-
-        if let Some(name) = path.file_name() {
-            let name_str = name.to_string_lossy().to_string();
-            let truncated = truncate_path(&name_str, 40);
-            if let Ok(mut last) = self.last_file.lock() {
-                *last = truncated.clone();
-            }
-            self.bar.set_message(format!("Current: {}", truncated));
-        }
+    fn on_file_skipped(&self, _path: &Path) {
+        self.processed.fetch_add(1, Ordering::Relaxed);
+        self.skipped.fetch_add(1, Ordering::Relaxed);
+        self.bar.tick();
+        self.maybe_render();
     }
 
-    fn on_file_skipped(&self, path: &Path) {
-        let pos = self.bar.position();
-        self.bar.set_position(pos + 1);
-
-        if let Some(name) = path.file_name() {
-            let name_str = name.to_string_lossy().to_string();
-            let truncated = truncate_path(&name_str, 40);
-            self.bar.set_message(format!("Skipped: {}", truncated));
-        }
+    fn on_file_failed(&self, _path: &Path, _reason: &str) {
+        self.processed.fetch_add(1, Ordering::Relaxed);
+        self.failed.fetch_add(1, Ordering::Relaxed);
+        self.bar.tick();
+        self.maybe_render();
     }
 
-    fn on_file_failed(&self, path: &Path, _reason: &str) {
-        let pos = self.bar.position();
-        self.bar.set_position(pos + 1);
-
-        if let Some(name) = path.file_name() {
-            let name_str = name.to_string_lossy().to_string();
-            let truncated = truncate_path(&name_str, 40);
-            self.bar.set_message(format!("Failed: {}", truncated));
-        }
+    fn on_parser_error(&self, _path: &Path, _parser: &str, _reason: &str) {
+        self.processed.fetch_add(1, Ordering::Relaxed);
+        self.skipped.fetch_add(1, Ordering::Relaxed);
+        self.failed.fetch_add(1, Ordering::Relaxed);
+        self.bar.tick();
+        self.maybe_render();
     }
 
-    fn on_parser_error(&self, path: &Path, parser: &str, _reason: &str) {
-        let pos = self.bar.position();
-        self.bar.set_position(pos + 1);
-
-        if let Some(name) = path.file_name() {
-            let name_str = name.to_string_lossy().to_string();
-            let truncated = truncate_path(&name_str, 40);
-            self.bar
-                .set_message(format!("{parser} error: {}", truncated));
-        }
-    }
-
-    fn on_parser_panic(&self, path: &Path, parser: &str) {
-        let pos = self.bar.position();
-        self.bar.set_position(pos + 1);
-
-        if let Some(name) = path.file_name() {
-            let name_str = name.to_string_lossy().to_string();
-            let truncated = truncate_path(&name_str, 40);
-            self.bar
-                .set_message(format!("{parser} panic: {}", truncated));
-        }
-    }
-
-    fn set_total_files(&self, total: u64) {
-        if total > 0 && self.total_hint.load(Ordering::Relaxed) == 0 {
-            self.total_hint.store(total, Ordering::Relaxed);
-            self.bar.set_length(total);
-            self.bar.set_style(
-                ProgressStyle::default_bar()
-                    .template(
-                        "{prefix:.bold.dim} {spinner:.green} {bar:40.cyan/blue} {pos}/{len} {msg}",
-                    )
-                    .expect("valid template")
-                    .progress_chars("█░░"),
-            );
-        }
+    fn on_parser_panic(&self, _path: &Path, _parser: &str) {
+        self.processed.fetch_add(1, Ordering::Relaxed);
+        self.skipped.fetch_add(1, Ordering::Relaxed);
+        self.failed.fetch_add(1, Ordering::Relaxed);
+        self.bar.tick();
+        self.maybe_render();
     }
 
     fn on_operation_started(&self, operation: &str) {
@@ -149,16 +120,14 @@ impl ProgressReporter for ProgressBarReporter {
     }
 
     fn on_operation_completed(&self) {
-        self.bar.set_message("Done");
-    }
-}
-
-/// Truncates a path string to the given maximum length, adding "..." if needed.
-fn truncate_path(path: &str, max_len: usize) -> String {
-    if path.len() <= max_len {
-        path.to_string()
-    } else {
-        format!("...{}", &path[path.len() - max_len + 3..])
+        // Force a final render with complete stats
+        let processed = self.processed.load(Ordering::Relaxed);
+        let indexed = self.indexed.load(Ordering::Relaxed);
+        let skipped = self.skipped.load(Ordering::Relaxed);
+        let failed = self.failed.load(Ordering::Relaxed);
+        self.bar.finish_with_message(format!(
+            "Done — Processed: {processed} | Indexed: {indexed} | Skipped: {skipped} | Errors: {failed}"
+        ));
     }
 }
 
@@ -167,24 +136,23 @@ mod tests {
     use super::*;
 
     #[test]
-    fn truncate_path_short() {
-        assert_eq!(truncate_path("hello.txt", 20), "hello.txt");
-    }
-
-    #[test]
-    fn truncate_path_long() {
-        let result = truncate_path("this_is_a_very_long_filename_that_needs_truncation.txt", 20);
-        assert!(result.len() <= 20);
-        assert!(result.starts_with("..."));
-    }
-
-    #[test]
     fn progress_bar_reporter_creation() {
-        let _reporter = ProgressBarReporter::new(100);
+        let _reporter = ProgressBarReporter::new();
     }
 
     #[test]
-    fn progress_bar_reporter_zero_total() {
-        let _reporter = ProgressBarReporter::new(0);
+    fn progress_bar_reporter_counts() {
+        let reporter = ProgressBarReporter::new();
+        let path = Path::new("/test/file.txt");
+
+        reporter.on_file_indexed(path);
+        reporter.on_file_indexed(path);
+        reporter.on_file_skipped(path);
+        reporter.on_file_failed(path, "error");
+
+        assert_eq!(reporter.processed.load(Ordering::Relaxed), 4);
+        assert_eq!(reporter.indexed.load(Ordering::Relaxed), 2);
+        assert_eq!(reporter.skipped.load(Ordering::Relaxed), 1);
+        assert_eq!(reporter.failed.load(Ordering::Relaxed), 1);
     }
 }

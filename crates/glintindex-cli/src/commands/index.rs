@@ -71,7 +71,7 @@ pub fn execute(config_path: &str, args: IndexArgs) -> Result<()> {
             tracing::info!("Indexing folder: {}", resolved.display());
 
             // Create progress reporter (we don't know total files yet)
-            let reporter = ProgressBarReporter::new(0);
+            let reporter = ProgressBarReporter::new();
 
             let stats = service
                 .index_folder_with_progress(&resolved, &reporter)
@@ -114,7 +114,7 @@ pub fn execute(config_path: &str, args: IndexArgs) -> Result<()> {
             tracing::info!("Indexing all configured folders");
 
             // Create progress reporter (we don't know total files yet)
-            let reporter = ProgressBarReporter::new(0);
+            let reporter = ProgressBarReporter::new();
 
             let results = service
                 .index_all_with_progress(&reporter)

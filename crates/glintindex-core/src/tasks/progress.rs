@@ -28,11 +28,6 @@ pub struct Progress {
     pub status_message: String,
     /// Number of files processed so far.
     pub files_processed: u64,
-    /// Total number of files to process, if known.
-    ///
-    /// `None` when the total is not yet determined (e.g., during directory
-    /// traversal before all files are counted).
-    pub total_files: Option<u64>,
     /// Number of newly indexed files (no prior metadata).
     pub files_indexed: u64,
     /// Number of files re-indexed because content changed.
@@ -67,35 +62,11 @@ impl Progress {
         self
     }
 
-    /// Sets the total number of files to process.
-    pub fn with_total_files(mut self, total: u64) -> Self {
-        self.total_files = Some(total);
-        self
-    }
-
-    /// Returns `true` if a total file count is known.
-    pub fn has_total(&self) -> bool {
-        self.total_files.is_some()
-    }
-
-    /// Returns the completion percentage (0.0 to 100.0), or `None` if
-    /// the total is not known.
-    pub fn percentage(&self) -> Option<f64> {
-        self.total_files.map(|total| {
-            if total == 0 {
-                100.0
-            } else {
-                (self.files_processed as f64 / total as f64) * 100.0
-            }
-        })
-    }
-
     /// Creates a `Progress` from a `ScannerStatistics` snapshot.
     pub fn from_statistics(stats: &ScannerStatistics, status_message: impl Into<String>) -> Self {
         Self {
             status_message: status_message.into(),
             files_processed: stats.files_discovered,
-            total_files: None,
             files_indexed: stats.files_indexed,
             files_reindexed: stats.files_reindexed,
             files_unchanged: stats.files_unchanged,
@@ -136,7 +107,6 @@ mod tests {
         let progress = Progress::new("Indexing");
         assert_eq!(progress.status_message, "Indexing");
         assert_eq!(progress.files_processed, 0);
-        assert!(progress.total_files.is_none());
         assert_eq!(progress.files_indexed, 0);
         assert_eq!(progress.files_reindexed, 0);
         assert_eq!(progress.files_unchanged, 0);
@@ -151,37 +121,6 @@ mod tests {
     fn progress_with_current_file() {
         let progress = Progress::new("Indexing").with_current_file("/path/to/file.txt");
         assert_eq!(progress.current_file.as_deref(), Some("/path/to/file.txt"));
-    }
-
-    #[test]
-    fn progress_with_total_files() {
-        let progress = Progress::new("Indexing").with_total_files(100);
-        assert_eq!(progress.total_files, Some(100));
-        assert!(progress.has_total());
-    }
-
-    #[test]
-    fn progress_percentage_with_total() {
-        let progress = Progress::new("Indexing")
-            .with_total_files(200)
-            .with_current_file("file.txt");
-        // Manually set files_processed for testing
-        let mut progress = progress;
-        progress.files_processed = 50;
-        assert!((progress.percentage().unwrap() - 25.0).abs() < f64::EPSILON);
-    }
-
-    #[test]
-    fn progress_percentage_zero_total() {
-        let mut progress = Progress::new("Indexing").with_total_files(0);
-        progress.files_processed = 0;
-        assert!((progress.percentage().unwrap() - 100.0).abs() < f64::EPSILON);
-    }
-
-    #[test]
-    fn progress_percentage_no_total() {
-        let progress = Progress::new("Indexing");
-        assert!(progress.percentage().is_none());
     }
 
     #[test]
@@ -210,9 +149,7 @@ mod tests {
 
     #[test]
     fn progress_clone() {
-        let progress = Progress::new("Indexing")
-            .with_total_files(100)
-            .with_current_file("test.txt");
+        let progress = Progress::new("Indexing").with_current_file("test.txt");
         let cloned = progress.clone();
         assert_eq!(progress, cloned);
     }

@@ -123,12 +123,6 @@ impl ProgressReporter for SharedProgressReporter {
         });
     }
 
-    fn set_total_files(&self, total: u64) {
-        self.update_progress(|p| {
-            p.total_files = Some(total);
-        });
-    }
-
     fn on_operation_started(&self, operation: &str) {
         self.update_progress(|p| {
             p.status_message = operation.to_string();

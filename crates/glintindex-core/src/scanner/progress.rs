@@ -35,7 +35,6 @@ use std::path::Path;
 ///     fn on_file_failed(&self, _path: &Path, _reason: &str) {}
 ///     fn on_parser_error(&self, _path: &Path, _parser: &str, _reason: &str) {}
 ///     fn on_parser_panic(&self, _path: &Path, _parser: &str) {}
-///     fn set_total_files(&self, _total: u64) {}
 ///     fn on_operation_started(&self, _operation: &str) {}
 ///     fn on_operation_completed(&self) {}
 /// }
@@ -59,9 +58,6 @@ pub trait ProgressReporter: Send + Sync {
     /// Called when a parser panics while processing a file.
     fn on_parser_panic(&self, path: &Path, parser: &str);
 
-    /// Sets the total number of files to process (if known ahead of time).
-    fn set_total_files(&self, total: u64);
-
     /// Called when an indexing operation starts.
     fn on_operation_started(&self, operation: &str);
 
@@ -82,7 +78,6 @@ impl ProgressReporter for NoopReporter {
     fn on_file_failed(&self, _path: &Path, _reason: &str) {}
     fn on_parser_error(&self, _path: &Path, _parser: &str, _reason: &str) {}
     fn on_parser_panic(&self, _path: &Path, _parser: &str) {}
-    fn set_total_files(&self, _total: u64) {}
     fn on_operation_started(&self, _operation: &str) {}
     fn on_operation_completed(&self) {}
 }
@@ -133,7 +128,6 @@ mod tests {
         fn on_parser_panic(&self, _path: &Path, _parser: &str) {
             self.parser_panics.fetch_add(1, Ordering::Relaxed);
         }
-        fn set_total_files(&self, _total: u64) {}
         fn on_operation_started(&self, _operation: &str) {}
         fn on_operation_completed(&self) {}
     }
@@ -169,7 +163,6 @@ mod tests {
         reporter.on_file_failed(path, "error");
         reporter.on_parser_error(path, "PDF", "corrupted");
         reporter.on_parser_panic(path, "DOCX");
-        reporter.set_total_files(100);
         reporter.on_operation_started("Indexing");
         reporter.on_operation_completed();
     }
