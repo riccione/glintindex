@@ -49,6 +49,14 @@ pub struct AppConfig {
     /// Default: 50.
     #[serde(default = "default_main_split_ratio")]
     pub main_split_ratio: u32,
+    /// Number of documents to accumulate before committing the index.
+    ///
+    /// Incremental commits improve crash resilience, reduce peak memory,
+    /// and make partial indexing results searchable during long scans.
+    /// Set to 0 to disable incremental commits (single commit at end).
+    /// Default: 500.
+    #[serde(default = "default_commit_interval")]
+    pub commit_interval: usize,
 }
 
 /// Returns the default font size for deserialization.
@@ -63,6 +71,13 @@ fn default_main_split_ratio() -> u32 {
     50
 }
 
+/// Returns the default commit interval for deserialization.
+///
+/// Returns 500 documents between incremental commits.
+fn default_commit_interval() -> usize {
+    500
+}
+
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
@@ -74,6 +89,7 @@ impl Default for AppConfig {
             recent_searches: Vec::new(),
             font_size: default_font_size(),
             main_split_ratio: default_main_split_ratio(),
+            commit_interval: default_commit_interval(),
         }
     }
 }
@@ -133,6 +149,7 @@ mod tests {
         assert_eq!(config.theme, Theme::System);
         assert!(config.recent_searches.is_empty());
         assert_eq!(config.font_size, 12);
+        assert_eq!(config.commit_interval, 500);
     }
 
     #[test]

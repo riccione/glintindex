@@ -47,6 +47,7 @@ pub struct FilesystemScanner<'a> {
     ignore_rules: IgnoreRules,
     parser_registry: ParserRegistry,
     reporter: &'a dyn ProgressReporter,
+    commit_interval: usize,
 }
 
 impl<'a> FilesystemScanner<'a> {
@@ -57,6 +58,7 @@ impl<'a> FilesystemScanner<'a> {
             ignore_rules: IgnoreRules::new(),
             parser_registry: ParserRegistry::new(),
             reporter: &NoopReporter,
+            commit_interval: 0,
         }
     }
 
@@ -67,6 +69,7 @@ impl<'a> FilesystemScanner<'a> {
             ignore_rules: IgnoreRules::with_custom(custom),
             parser_registry: ParserRegistry::new(),
             reporter: &NoopReporter,
+            commit_interval: 0,
         }
     }
 
@@ -76,6 +79,16 @@ impl<'a> FilesystemScanner<'a> {
     /// error handling to provide real-time progress feedback.
     pub fn with_progress(mut self, reporter: &'a dyn ProgressReporter) -> Self {
         self.reporter = reporter;
+        self
+    }
+
+    /// Sets the commit interval for incremental commits.
+    ///
+    /// When set to a value greater than 0, the scanner will commit the
+    /// index every N successfully indexed documents. Set to 0 to disable
+    /// incremental commits (single commit at end of scan).
+    pub fn with_commit_interval(mut self, interval: usize) -> Self {
+        self.commit_interval = interval;
         self
     }
 
@@ -90,6 +103,7 @@ impl<'a> FilesystemScanner<'a> {
     /// Returns an error only if the root directory cannot be read.
     pub fn scan_directory(&self, directory: &Path) -> Result<ScannerStatistics> {
         let mut stats = ScannerStatistics::new();
+        let mut docs_since_commit = 0usize;
         let ignore_rules = self.ignore_rules.clone();
 
         self.reporter
@@ -210,6 +224,16 @@ impl<'a> FilesystemScanner<'a> {
                             stats.inc_files_reindexed();
                         }
                         self.reporter.on_file_indexed(path);
+
+                        // Track uncommitted documents for final commit
+                        docs_since_commit += 1;
+
+                        // Incremental commit when interval is reached
+                        if self.commit_interval > 0 && docs_since_commit >= self.commit_interval {
+                            self.index_service.commit()?;
+                            docs_since_commit = 0;
+                            stats.inc_commits();
+                        }
                     }
                 }
                 Err(FileParseOutcome::ReadError(err)) => {
@@ -279,6 +303,12 @@ impl<'a> FilesystemScanner<'a> {
                     self.reporter.on_parser_panic(path, &parser_name);
                 }
             }
+        }
+
+        // Final commit for remaining uncommitted documents
+        if docs_since_commit > 0 {
+            self.index_service.commit()?;
+            stats.inc_commits();
         }
 
         self.reporter.on_operation_completed();
@@ -806,5 +836,136 @@ mod tests {
         // (update_document is not called for failed files)
         let stats2 = scanner.scan_directory(&root).unwrap();
         assert_eq!(stats2.parser_errors, 1);
+    }
+
+    #[test]
+    fn commit_interval_1_commits_every_document() {
+        let (tmp, root) = setup_test_dir();
+        for i in 0..5 {
+            fs::write(root.join(format!("file_{i}.txt")), "content").unwrap();
+        }
+        let service = create_index_service(&tmp);
+        let scanner = FilesystemScanner::new(&service).with_commit_interval(1);
+        let stats = scanner.scan_directory(&root).unwrap();
+        assert_eq!(stats.files_indexed, 5);
+        assert_eq!(stats.commits, 5);
+    }
+
+    #[test]
+    fn commit_interval_3_commits_in_batches() {
+        let (tmp, root) = setup_test_dir();
+        for i in 0..10 {
+            fs::write(root.join(format!("file_{i}.txt")), "content").unwrap();
+        }
+        let service = create_index_service(&tmp);
+        let scanner = FilesystemScanner::new(&service).with_commit_interval(3);
+        let stats = scanner.scan_directory(&root).unwrap();
+        // commits at 3, 6, 9, then final commit for 1 remaining = 4
+        assert_eq!(stats.commits, 4);
+    }
+
+    #[test]
+    fn commit_interval_0_single_commit() {
+        let (tmp, root) = setup_test_dir();
+        for i in 0..10 {
+            fs::write(root.join(format!("file_{i}.txt")), "content").unwrap();
+        }
+        let service = create_index_service(&tmp);
+        let scanner = FilesystemScanner::new(&service).with_commit_interval(0);
+        let stats = scanner.scan_directory(&root).unwrap();
+        // interval=0 → no incremental commits, only final commit = 1
+        assert_eq!(stats.commits, 1);
+    }
+
+    #[test]
+    fn commit_interval_exceeds_file_count() {
+        let (tmp, root) = setup_test_dir();
+        for i in 0..5 {
+            fs::write(root.join(format!("file_{i}.txt")), "content").unwrap();
+        }
+        let service = create_index_service(&tmp);
+        let scanner = FilesystemScanner::new(&service).with_commit_interval(100);
+        let stats = scanner.scan_directory(&root).unwrap();
+        // 5 files < 100 interval → no incremental commit, only final = 1
+        assert_eq!(stats.commits, 1);
+    }
+
+    #[test]
+    fn commit_interval_exact_boundary() {
+        let (tmp, root) = setup_test_dir();
+        for i in 0..10 {
+            fs::write(root.join(format!("file_{i}.txt")), "content").unwrap();
+        }
+        let service = create_index_service(&tmp);
+        let scanner = FilesystemScanner::new(&service).with_commit_interval(5);
+        let stats = scanner.scan_directory(&root).unwrap();
+        // commits at 5, 10 → 2 commits, no final needed (remainder is 0)
+        assert_eq!(stats.commits, 2);
+    }
+
+    #[test]
+    fn unchanged_files_no_commit() {
+        let (tmp, root) = setup_test_dir();
+        for i in 0..10 {
+            fs::write(root.join(format!("file_{i}.txt")), "content").unwrap();
+        }
+        let service = create_index_service(&tmp);
+        let scanner = FilesystemScanner::new(&service).with_commit_interval(3);
+
+        // First scan — commits happen
+        let stats1 = scanner.scan_directory(&root).unwrap();
+        assert!(stats1.commits > 0);
+
+        // Second scan — all files unchanged, no indexing, no commits
+        let stats2 = scanner.scan_directory(&root).unwrap();
+        assert_eq!(stats2.commits, 0);
+    }
+
+    #[test]
+    fn incremental_commit_makes_documents_searchable() {
+        use crate::model::SearchQuery;
+        use crate::traits::SearchEngine;
+
+        let (tmp, root) = setup_test_dir();
+        let service = create_index_service(&tmp);
+
+        // First batch — 2 files, commit_interval=2 → commit after both
+        fs::write(root.join("a.txt"), "apple banana").unwrap();
+        fs::write(root.join("b.txt"), "blueberry").unwrap();
+        let scanner = FilesystemScanner::new(&service).with_commit_interval(2);
+        let stats1 = scanner.scan_directory(&root).unwrap();
+        assert_eq!(stats1.commits, 1);
+        assert_eq!(stats1.files_indexed, 2);
+
+        // Search for "apple" — should be found after commit
+        let results = service.search(&SearchQuery::new("apple")).unwrap();
+        assert!(
+            !results.is_empty(),
+            "document 'a.txt' should be searchable after commit"
+        );
+
+        // Second batch — 2 more files, commit_interval=2 → commit after both
+        fs::write(root.join("c.txt"), "cherry date").unwrap();
+        fs::write(root.join("d.txt"), "elderberry").unwrap();
+        let scanner2 = FilesystemScanner::new(&service).with_commit_interval(2);
+        let stats2 = scanner2.scan_directory(&root).unwrap();
+        assert_eq!(stats2.commits, 1);
+        assert_eq!(stats2.files_indexed, 2);
+
+        // Search for "cherry" — should be found after second commit
+        let results = service.search(&SearchQuery::new("cherry")).unwrap();
+        assert!(
+            !results.is_empty(),
+            "document 'c.txt' should be searchable after second commit"
+        );
+    }
+
+    #[test]
+    fn commit_interval_default_is_0() {
+        let (tmp, _root) = setup_test_dir();
+        let service = create_index_service(&tmp);
+        let scanner = FilesystemScanner::new(&service);
+        // Default commit_interval is 0 (no incremental commits)
+        assert_eq!(scanner.commit_interval, 0);
     }
 }

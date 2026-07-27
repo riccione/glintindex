@@ -23,6 +23,9 @@ pub struct ScannerStatistics {
     pub parser_errors: u64,
     /// Number of files skipped due to parser panics (caught via catch_unwind).
     pub parser_panics: u64,
+    /// Number of successful index commits performed during this scan,
+    /// including the final commit.
+    pub commits: u64,
 }
 
 impl ScannerStatistics {
@@ -38,6 +41,7 @@ impl ScannerStatistics {
             files_failed: 0,
             parser_errors: 0,
             parser_panics: 0,
+            commits: 0,
         }
     }
 
@@ -86,6 +90,11 @@ impl ScannerStatistics {
         self.parser_panics += 1;
     }
 
+    /// Increments the commits counter.
+    pub fn inc_commits(&mut self) {
+        self.commits += 1;
+    }
+
     /// Merges another `ScannerStatistics` into this one by adding all counters.
     pub fn merge(&mut self, other: &ScannerStatistics) {
         self.directories_scanned += other.directories_scanned;
@@ -97,6 +106,7 @@ impl ScannerStatistics {
         self.files_failed += other.files_failed;
         self.parser_errors += other.parser_errors;
         self.parser_panics += other.parser_panics;
+        self.commits += other.commits;
     }
 }
 
@@ -122,6 +132,7 @@ mod tests {
         assert_eq!(stats.files_failed, 0);
         assert_eq!(stats.parser_errors, 0);
         assert_eq!(stats.parser_panics, 0);
+        assert_eq!(stats.commits, 0);
     }
 
     #[test]
@@ -141,6 +152,8 @@ mod tests {
         stats.inc_parser_errors();
         stats.inc_parser_errors();
         stats.inc_parser_panics();
+        stats.inc_commits();
+        stats.inc_commits();
 
         assert_eq!(stats.directories_scanned, 2);
         assert_eq!(stats.files_discovered, 1);
@@ -151,6 +164,7 @@ mod tests {
         assert_eq!(stats.files_failed, 2);
         assert_eq!(stats.parser_errors, 3);
         assert_eq!(stats.parser_panics, 1);
+        assert_eq!(stats.commits, 2);
     }
 
     #[test]
@@ -165,6 +179,7 @@ mod tests {
         a.files_failed = 2;
         a.parser_errors = 1;
         a.parser_panics = 1;
+        a.commits = 3;
 
         let mut b = ScannerStatistics::new();
         b.directories_scanned = 3;
@@ -176,6 +191,7 @@ mod tests {
         b.files_failed = 1;
         b.parser_errors = 2;
         b.parser_panics = 0;
+        b.commits = 2;
 
         a.merge(&b);
 
@@ -188,5 +204,6 @@ mod tests {
         assert_eq!(a.files_failed, 3);
         assert_eq!(a.parser_errors, 3);
         assert_eq!(a.parser_panics, 1);
+        assert_eq!(a.commits, 5);
     }
 }

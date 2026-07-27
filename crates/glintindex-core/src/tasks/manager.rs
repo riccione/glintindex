@@ -272,6 +272,7 @@ impl TaskManager {
             .into_iter()
             .map(|f| f.path.clone())
             .collect();
+        let commit_interval = config.commit_interval;
         let internal_shared = self.current_job.clone();
 
         thread::spawn(move || {
@@ -280,12 +281,14 @@ impl TaskManager {
                     &index_service,
                     &ignored_folders,
                     &enabled_folders,
+                    commit_interval,
                     &internal_shared,
                 ),
                 JobType::RebuildIndex => Self::run_rebuild(
                     &index_service,
                     &ignored_folders,
                     &enabled_folders,
+                    commit_interval,
                     &internal_shared,
                 ),
             };
@@ -319,6 +322,7 @@ impl TaskManager {
         index_service: &Arc<Mutex<IndexService>>,
         ignored_folders: &[String],
         enabled_folders: &[PathBuf],
+        commit_interval: usize,
         shared: &Arc<Mutex<Option<SharedState>>>,
     ) -> Result<ScannerStatistics> {
         let service = index_service
@@ -329,16 +333,12 @@ impl TaskManager {
 
         let scanner =
             crate::scanner::FilesystemScanner::with_custom_ignores(&service, ignored_folders)
-                .with_progress(&reporter);
+                .with_progress(&reporter)
+                .with_commit_interval(commit_interval);
 
         reporter.on_operation_started("Scanning directories...");
 
         let stats = scanner.scan_directories(enabled_folders)?;
-
-        reporter.on_operation_started("Committing index...");
-
-        service.commit()?;
-        service.reload_reader()?;
 
         Ok(stats)
     }
@@ -351,6 +351,7 @@ impl TaskManager {
         index_service: &Arc<Mutex<IndexService>>,
         ignored_folders: &[String],
         enabled_folders: &[PathBuf],
+        commit_interval: usize,
         shared: &Arc<Mutex<Option<SharedState>>>,
     ) -> Result<ScannerStatistics> {
         let service = index_service
@@ -359,23 +360,18 @@ impl TaskManager {
 
         let reporter = SharedProgressReporter::new(shared.clone());
 
-        // Step 1: Clear the index
+        // Step 1: Clear the index (rebuild() commits internally)
         reporter.on_operation_started("Rebuilding index...");
         service.rebuild()?;
-        service.commit()?;
-        service.reload_reader()?;
 
         // Step 2: Re-index all configured folders
         reporter.on_operation_started("Scanning directories...");
         let scanner =
             crate::scanner::FilesystemScanner::with_custom_ignores(&service, ignored_folders)
-                .with_progress(&reporter);
+                .with_progress(&reporter)
+                .with_commit_interval(commit_interval);
 
         let stats = scanner.scan_directories(enabled_folders)?;
-
-        reporter.on_operation_started("Committing index...");
-        service.commit()?;
-        service.reload_reader()?;
 
         Ok(stats)
     }

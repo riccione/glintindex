@@ -99,6 +99,11 @@ max_preview_size = 200
 
 # Visual theme preference: light, dark, or system.
 theme = "system"
+
+# Commit the index every N documents during indexing.
+# Set to 0 for a single commit at the end (legacy behavior).
+# Default: 500
+commit_interval = 500
 "#
     )
 }
