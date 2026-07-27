@@ -83,6 +83,7 @@ pub fn execute(config_path: &str, args: IndexArgs) -> Result<()> {
             println!("Folders:            1");
             println!("Files indexed:      {}", stats.files_indexed);
             println!("Files re-indexed:   {}", stats.files_reindexed);
+            println!("Files unchanged:    {}", stats.files_unchanged);
             println!("Files skipped:      {}", stats.files_skipped);
 
             if stats.files_failed > 0 {
@@ -124,6 +125,7 @@ pub fn execute(config_path: &str, args: IndexArgs) -> Result<()> {
 
             let total_indexed: u64 = results.iter().map(|s| s.files_indexed).sum();
             let total_reindexed: u64 = results.iter().map(|s| s.files_reindexed).sum();
+            let total_unchanged: u64 = results.iter().map(|s| s.files_unchanged).sum();
             let total_skipped: u64 = results.iter().map(|s| s.files_skipped).sum();
             let total_failed: u64 = results.iter().map(|s| s.files_failed).sum();
             let total_errors: u64 = results.iter().map(|s| s.parser_errors).sum();
@@ -133,6 +135,7 @@ pub fn execute(config_path: &str, args: IndexArgs) -> Result<()> {
             println!("Folders:            {}", enabled.len());
             println!("Files indexed:      {}", total_indexed);
             println!("Files re-indexed:   {}", total_reindexed);
+            println!("Files unchanged:    {}", total_unchanged);
             println!("Files skipped:      {}", total_skipped);
 
             if total_failed > 0 {
