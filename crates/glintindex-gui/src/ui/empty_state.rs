@@ -88,7 +88,6 @@ pub fn build(
         let subtitle = subtitle.clone();
         let progress_bar = progress_bar.clone();
         let status_label = status_label.clone();
-        let parent_window = parent_window.clone();
 
         index_btn.clone().connect_clicked(move |_| {
             let state = state.clone();
@@ -99,7 +98,6 @@ pub fn build(
             let subtitle = subtitle.clone();
             let progress_bar = progress_bar.clone();
             let status_label = status_label.clone();
-            let _parent_window = parent_window.clone();
 
             glib::spawn_future_local(async move {
                 let dialog = rfd::AsyncFileDialog::new()
