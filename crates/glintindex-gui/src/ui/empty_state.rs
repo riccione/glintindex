@@ -88,7 +88,6 @@ pub fn build(
         let subtitle = subtitle.clone();
         let progress_bar = progress_bar.clone();
         let status_label = status_label.clone();
-        let parent_window = parent_window.clone();
 
         index_btn.clone().connect_clicked(move |_| {
             let state = state.clone();
@@ -99,7 +98,6 @@ pub fn build(
             let subtitle = subtitle.clone();
             let progress_bar = progress_bar.clone();
             let status_label = status_label.clone();
-            let _parent_window = parent_window.clone();
 
             glib::spawn_future_local(async move {
                 let dialog = rfd::AsyncFileDialog::new()
@@ -135,9 +133,8 @@ pub fn build(
 
                 // 3. Start background indexing
                 {
-                    let mut st = state.borrow_mut();
+                    let st = state.borrow_mut();
                     if let Err(e) = st.service.start_indexing() {
-                        st.status = format!("Failed to start indexing: {e}");
                         reset_to_initial(
                             &title,
                             &subtitle,
@@ -146,6 +143,7 @@ pub fn build(
                             &progress_bar,
                             &status_label,
                         );
+                        status_label.set_text(&format!("Failed to start indexing: {e}"));
                         return;
                     }
                 }
