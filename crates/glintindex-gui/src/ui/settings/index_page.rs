@@ -78,6 +78,15 @@ pub fn build(state: &Rc<RefCell<WindowState>>) -> GtkBox {
         gtk::glib::ControlFlow::Break
     });
 
+    // If indexing is already active, start polling immediately
+    {
+        let st = state.borrow();
+        if st.service.is_indexing() {
+            drop(st);
+            schedule_progress_polling(state, &status_label, &stats_box, &progress_bar);
+        }
+    }
+
     // Connect Index All button
     let state_clone = state.clone();
     let status_clone = status_label.clone();
@@ -181,35 +190,48 @@ fn schedule_progress_polling(
     let stats_clone = stats_box.clone();
 
     gtk::glib::timeout_add_local(std::time::Duration::from_millis(200), move || {
-        let mut st = state_clone.borrow_mut();
-        if !st.progress_active {
+        // Check if job is still active — short borrow, released before refresh_stats
+        let progress_active = {
+            let st = state_clone.borrow();
+            st.progress_active
+        };
+
+        if !progress_active {
             // Job is not active — stop polling
             refresh_stats(&state_clone, &status_clone, &stats_clone, &progress_clone);
             return gtk::glib::ControlFlow::Break;
         }
-        if let Some(progress) = st.service.current_progress() {
-            st.status = progress.status_message.clone();
-            progress_clone.pulse();
-            progress_clone.set_text(Some(&format!(
-                "Processed: {} files",
-                progress.files_processed
-            )));
-        }
-        if !st.service.is_indexing() {
-            // Store the completed job's progress for statistics display
+
+        // Update progress display
+        {
+            let mut st = state_clone.borrow_mut();
             if let Some(progress) = st.service.current_progress() {
-                st.last_job_progress = Some(progress);
+                st.status = progress.status_message.clone();
+                progress_clone.pulse();
+                progress_clone.set_text(Some(&format!(
+                    "Processed: {} files",
+                    progress.files_processed
+                )));
             }
-            st.progress_active = false;
-            st.refresh_statistics();
-            progress_clone.set_visible(false);
-            progress_clone.set_fraction(0.0);
-            drop(st);
-            refresh_stats(&state_clone, &status_clone, &stats_clone, &progress_clone);
+            if !st.service.is_indexing() {
+                // Store the completed job's progress for statistics display
+                if let Some(progress) = st.service.current_progress() {
+                    st.last_job_progress = Some(progress);
+                }
+                st.progress_active = false;
+                st.refresh_statistics();
+                progress_clone.set_visible(false);
+                progress_clone.set_fraction(0.0);
+            }
+        }
+
+        refresh_stats(&state_clone, &status_clone, &stats_clone, &progress_clone);
+
+        // Check again if indexing is done after refresh
+        let still_indexing = state_clone.borrow().service.is_indexing();
+        if !still_indexing {
             return gtk::glib::ControlFlow::Break;
         }
-        drop(st);
-        refresh_stats(&state_clone, &status_clone, &stats_clone, &progress_clone);
         gtk::glib::ControlFlow::Continue
     });
 }
