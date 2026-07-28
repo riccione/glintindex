@@ -230,6 +230,7 @@ impl<'a> FilesystemScanner<'a> {
 
                         // Incremental commit when interval is reached
                         if self.commit_interval > 0 && docs_since_commit >= self.commit_interval {
+                            self.index_service.flush_metadata_buffer()?;
                             self.index_service.commit()?;
                             docs_since_commit = 0;
                             stats.inc_commits();
@@ -305,7 +306,8 @@ impl<'a> FilesystemScanner<'a> {
             }
         }
 
-        // Final commit for remaining uncommitted documents
+        // Final flush of remaining buffered metadata and commit
+        self.index_service.flush_metadata_buffer()?;
         if docs_since_commit > 0 {
             self.index_service.commit()?;
             stats.inc_commits();
