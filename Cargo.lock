@@ -1207,7 +1207,7 @@ dependencies = [
 
 [[package]]
 name = "glintindex-cli"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -1219,7 +1219,7 @@ dependencies = [
 
 [[package]]
 name = "glintindex-core"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "calamine",
  "criterion",
@@ -1248,7 +1248,7 @@ dependencies = [
 
 [[package]]
 name = "glintindex-gui"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "glintindex-core",
