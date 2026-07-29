@@ -45,6 +45,8 @@ pub struct IndexService {
     fields: Arc<IndexFields>,
     index_path: PathBuf,
     metadata: Option<Mutex<Repository>>,
+    /// Buffered metadata records awaiting batch flush to SQLite.
+    metadata_buffer: Mutex<Vec<FileMetadata>>,
 }
 
 // SAFETY: IndexWriter is Send. All mutable access to the writer goes
@@ -87,6 +89,7 @@ impl IndexService {
             fields,
             index_path: index_path.to_path_buf(),
             metadata: metadata.map(Mutex::new),
+            metadata_buffer: Mutex::new(Vec::new()),
         })
     }
 
@@ -98,6 +101,48 @@ impl IndexService {
     /// Returns the path where this index is stored.
     pub fn index_path(&self) -> &Path {
         &self.index_path
+    }
+
+    /// Buffers a metadata record for later batch flush to SQLite.
+    fn buffer_metadata(&self, document: &Document) {
+        let meta = FileMetadata {
+            path: document.path.to_string_lossy().to_string(),
+            size: document.size as i64,
+            modified: document
+                .modified
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs() as i64)
+                .unwrap_or(0),
+            hash: None,
+            mime: None,
+            parser_version: 1,
+            indexed_at: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs() as i64)
+                .unwrap_or(0),
+        };
+        if let Ok(mut buffer) = self.metadata_buffer.lock() {
+            buffer.push(meta);
+        }
+    }
+
+    /// Flushes buffered metadata to the database in a single transaction.
+    pub fn flush_metadata_buffer(&self) -> Result<()> {
+        let buffer = {
+            let Ok(mut guard) = self.metadata_buffer.lock() else {
+                return Ok(());
+            };
+            std::mem::take(&mut *guard)
+        };
+
+        if !buffer.is_empty() {
+            if let Some(ref repo) = self.metadata {
+                if let Ok(mut guard) = repo.lock() {
+                    guard.upsert_batch(&buffer)?;
+                }
+            }
+        }
+        Ok(())
     }
 
     /// Returns a reference to the metadata repository, if available.
@@ -304,28 +349,8 @@ impl DocumentIndexer for IndexService {
                 .map_err(|e| GlintIndexError::Index(format!("failed to update document: {e}")))?;
         }
 
-        // Update metadata record
-        if let Some(ref repo) = self.metadata {
-            let meta = FileMetadata {
-                path: document.path.to_string_lossy().to_string(),
-                size: document.size as i64,
-                modified: document
-                    .modified
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map(|d| d.as_secs() as i64)
-                    .unwrap_or(0),
-                hash: None,
-                mime: None,
-                parser_version: 1,
-                indexed_at: std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map(|d| d.as_secs() as i64)
-                    .unwrap_or(0),
-            };
-            if let Ok(guard) = repo.lock() {
-                let _ = guard.upsert(&meta);
-            }
-        }
+        // Buffer metadata for batch flush
+        self.buffer_metadata(document);
 
         Ok(())
     }

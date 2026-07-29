@@ -91,6 +91,52 @@ impl Repository {
         Ok(())
     }
 
+    /// Inserts or updates multiple metadata records in a single transaction.
+    ///
+    /// The transaction is fully encapsulated — no public `begin()`/`commit()`
+    /// needed. If any upsert fails, the transaction is rolled back and an
+    /// error is returned.
+    ///
+    /// Returns `Ok(())` immediately if the batch is empty.
+    pub fn upsert_batch(&mut self, batch: &[FileMetadata]) -> Result<()> {
+        if batch.is_empty() {
+            return Ok(());
+        }
+
+        let tx = self
+            .conn
+            .transaction()
+            .map_err(|e| GlintIndexError::Metadata(format!("tx begin failed: {e}")))?;
+
+        {
+            let mut stmt = tx
+                .prepare_cached(
+                    "INSERT OR REPLACE INTO files
+                     (path, size, modified, hash, mime, parser_version, indexed_at)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                )
+                .map_err(|e| GlintIndexError::Metadata(format!("prepare failed: {e}")))?;
+
+            for meta in batch {
+                stmt.execute(rusqlite::params![
+                    meta.path,
+                    meta.size,
+                    meta.modified,
+                    meta.hash,
+                    meta.mime,
+                    meta.parser_version,
+                    meta.indexed_at,
+                ])
+                .map_err(|e| GlintIndexError::Metadata(format!("upsert failed: {e}")))?;
+            }
+        }
+
+        tx.commit()
+            .map_err(|e| GlintIndexError::Metadata(format!("commit failed: {e}")))?;
+
+        Ok(())
+    }
+
     /// Removes a file's metadata record by path.
     ///
     /// Returns the number of rows deleted (0 or 1).
