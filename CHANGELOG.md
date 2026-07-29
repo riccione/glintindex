@@ -1,3 +1,30 @@
+## [0.3.0] - 2026-07-29
+
+### Bug Fixes
+
+- *(gui)* Show error message when start_indexing fails on Welcome screen (#52)
+- *(gui)* Fix borrow conflict in settings progress polling and auto-start on reopen (#53)
+
+### Features
+
+- *(index)* Add configurable incremental commits (#50)
+- *(gui)* Async indexing with progress on Welcome screen (#51)
+
+### Miscellaneous Tasks
+
+- Bump version to v0.3.0 for release
+
+### Other
+
+- *(core)* Add criterion benchmark suite for baseline performance (#48)
+
+### Performance
+
+- *(index)* Batch SQLite metadata writes in single transaction (#54)
+
+### Refactor
+
+- *(scanner)* Remove double directory traversal for single-pass scanning (#49)
 ## [0.2.0] - 2026-07-19
 
 ### Bug Fixes
