@@ -50,8 +50,7 @@ commit_interval = 500
         ),
     )
     .unwrap();
-    let service =
-        glintindex_core::ApplicationService::with_config_path(&config_path).unwrap();
+    let service = glintindex_core::ApplicationService::with_config_path(&config_path).unwrap();
 
     let theme = service.config().theme;
     let font_size = service.config().clamped_font_size();
@@ -96,7 +95,6 @@ commit_interval = 500
         ),
     )
     .unwrap();
-    let service =
-        glintindex_core::ApplicationService::with_config_path(&config_path).unwrap();
+    let service = glintindex_core::ApplicationService::with_config_path(&config_path).unwrap();
     (service, tmp)
 }
