@@ -30,7 +30,7 @@ pub enum SettingsPage {
 }
 
 impl SettingsPage {
-    fn stack_name(&self) -> &'static str {
+    pub fn stack_name(&self) -> &'static str {
         match self {
             Self::General => "general",
             Self::Appearance => "appearance",

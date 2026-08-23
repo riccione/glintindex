@@ -12,6 +12,13 @@ mod theme;
 mod ui;
 mod window;
 
+#[cfg(test)]
+mod tests;
+
+// Re-export for #[gtk::test] macro support in binary crate
+#[cfg(test)]
+pub use gtk::test_synced;
+
 use glintindex_core::logging::{LoggingConfig, init as init_logging};
 use gtk::prelude::*;
 

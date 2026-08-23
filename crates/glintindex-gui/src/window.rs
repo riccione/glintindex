@@ -371,7 +371,7 @@ impl WindowState {
 }
 
 /// Formats preview output into displayable text.
-fn format_preview_content(output: &glintindex_core::PreviewOutput) -> String {
+pub fn format_preview_content(output: &glintindex_core::PreviewOutput) -> String {
     let mut content = String::new();
 
     if output.truncated {
