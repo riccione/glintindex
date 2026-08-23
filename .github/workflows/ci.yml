@@ -19,9 +19,12 @@ on:
 
 jobs:
   ci:
-    uses: riccione/github-workflows/.github/workflows/rust-ci.yml@v3
+    uses: riccione/github-workflows/.github/workflows/rust-ci.yml@a42157e21f91d87ff97e4a6a30f431f687052064
     with:
       apt_packages: >-
         pkg-config
         libgtk-4-dev
         build-essential
+        xvfb
+      use_xvfb: true
+      test_args: --workspace -- --test-threads=1
