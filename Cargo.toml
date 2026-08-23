@@ -5,6 +5,9 @@ members = [
     "crates/glintindex-cli",
     "crates/glintindex-gui",
 ]
+exclude = [
+    "fuzz",
+]
 
 [workspace.package]
 version = "0.3.0"
