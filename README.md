@@ -405,6 +405,25 @@ BENCHMARK_RUST_STD_PATH=/path/to/rust/library \
 cargo bench -p glintindex-core
 ```
 
+### Fuzz Testing
+
+Fuzz targets test each parser with random/malformed input to find panics and crashes.
+
+```bash
+# Install cargo-fuzz (requires nightly Rust)
+cargo install cargo-fuzz
+
+# Run a specific parser fuzzer
+cargo +nightly fuzz run fuzz_pptx -- -max_total_time=60
+
+# List all fuzz targets
+cargo +nightly fuzz list
+```
+
+Available targets: `fuzz_pdf`, `fuzz_docx`, `fuzz_xlsx`, `fuzz_pptx`, `fuzz_rtf`, `fuzz_odt`, `fuzz_text`.
+
+Corpus files are seeded from `crates/glintindex-core/bench_data/` and existing scanner tests. Fuzz artifacts are git-ignored (`fuzz/artifacts/`, `fuzz/target/`, `fuzz/coverage/`).
+
 ## Contributing
 
 1. Fork the repository
