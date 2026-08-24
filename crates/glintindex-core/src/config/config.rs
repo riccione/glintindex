@@ -57,6 +57,9 @@ pub struct AppConfig {
     /// Default: 500.
     #[serde(default = "default_commit_interval")]
     pub commit_interval: usize,
+    /// Logging configuration.
+    #[serde(default)]
+    pub logging: LoggingSettings,
 }
 
 /// Returns the default font size for deserialization.
@@ -78,6 +81,43 @@ fn default_commit_interval() -> usize {
     500
 }
 
+/// Returns the default logging level for deserialization.
+fn default_logging_level() -> String {
+    "error".to_string()
+}
+
+/// Returns the default max retention days for deserialization.
+fn default_max_retention_days() -> u64 {
+    7
+}
+
+/// Logging configuration.
+///
+/// Controls log level, output destination, and log file retention.
+/// The log level is resolved with the following priority (highest to lowest):
+/// 1. `RUST_LOG` environment variable
+/// 2. `--verbose` CLI flag (forces DEBUG)
+/// 3. This `level` setting in `config.toml`
+/// 4. Hardcoded default: `error`
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct LoggingSettings {
+    /// Log level: "off", "error", "warn", "info", "debug", "trace".
+    #[serde(default = "default_logging_level")]
+    pub level: String,
+    /// Automatically delete log files older than N days on startup.
+    #[serde(default = "default_max_retention_days")]
+    pub max_retention_days: u64,
+}
+
+impl Default for LoggingSettings {
+    fn default() -> Self {
+        Self {
+            level: default_logging_level(),
+            max_retention_days: default_max_retention_days(),
+        }
+    }
+}
+
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
@@ -90,6 +130,7 @@ impl Default for AppConfig {
             font_size: default_font_size(),
             main_split_ratio: default_main_split_ratio(),
             commit_interval: default_commit_interval(),
+            logging: LoggingSettings::default(),
         }
     }
 }
@@ -150,6 +191,8 @@ mod tests {
         assert!(config.recent_searches.is_empty());
         assert_eq!(config.font_size, 12);
         assert_eq!(config.commit_interval, 500);
+        assert_eq!(config.logging.level, "error");
+        assert_eq!(config.logging.max_retention_days, 7);
     }
 
     #[test]
