@@ -5,6 +5,7 @@ use std::sync::{Arc, Mutex};
 use tantivy::collector::TopDocs;
 use tantivy::directory::MmapDirectory;
 use tantivy::query::{BooleanQuery, FuzzyTermQuery, Occur, QueryParser};
+use tantivy::tokenizer::{LowerCaser, RemoveLongFilter, SimpleTokenizer, TextAnalyzer};
 use tantivy::{Index, IndexReader, IndexWriter, ReloadPolicy, Term};
 
 use crate::error::{GlintIndexError, Result};
@@ -69,6 +70,16 @@ impl IndexService {
         let (schema, fields) = create_schema();
         let dir = MmapDirectory::open(index_path)?;
         let index = Index::open_or_create(dir, schema)?;
+
+        // Register a custom tokenizer that strips tokens longer than 40
+        // characters. This prevents Tantivy's SimpleTokenizer from spinning
+        // on corrupted text (e.g. raw byte streams from broken PDF extraction)
+        // where there are no whitespace boundaries for millions of characters.
+        let tokenizer = TextAnalyzer::builder(SimpleTokenizer::default())
+            .filter(RemoveLongFilter::limit(40))
+            .filter(LowerCaser)
+            .build();
+        index.tokenizers().register("default", tokenizer);
 
         let writer = index.writer(DEFAULT_WRITER_HEAP)?;
         let reader = index
