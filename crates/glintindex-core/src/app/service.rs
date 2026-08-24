@@ -162,7 +162,7 @@ impl ApplicationService {
         folder: &Path,
         reporter: &dyn ProgressReporter,
     ) -> Result<ScannerStatistics> {
-        tracing::info!(
+        tracing::debug!(
             target: "glintindex::index",
             operation = "index",
             path = %folder.display(),
@@ -179,7 +179,7 @@ impl ApplicationService {
                 .with_commit_interval(self.config.commit_interval);
         let stats = scanner.scan_directory(folder)?;
 
-        tracing::info!(
+        tracing::debug!(
             target: "glintindex::index",
             operation = "index",
             path = %folder.display(),
@@ -218,7 +218,7 @@ impl ApplicationService {
         reporter: &dyn ProgressReporter,
     ) -> Result<Vec<ScannerStatistics>> {
         let enabled_count = self.config.enabled_folders().len();
-        tracing::info!(
+        tracing::debug!(
             target: "glintindex::index",
             operation = "index",
             folders = enabled_count,
@@ -241,7 +241,7 @@ impl ApplicationService {
             .collect();
         let stats = scanner.scan_directories(&folders)?;
 
-        tracing::info!(
+        tracing::debug!(
             target: "glintindex::index",
             operation = "index",
             folders = enabled_count,
@@ -286,7 +286,7 @@ impl ApplicationService {
     pub fn rebuild_index(&self) -> Result<()> {
         use crate::traits::DocumentIndexer;
 
-        tracing::info!(
+        tracing::debug!(
             target: "glintindex::index",
             operation = "rebuild",
             "rebuild started"
@@ -300,7 +300,7 @@ impl ApplicationService {
         service.commit()?;
         service.reload_reader()?;
 
-        tracing::info!(
+        tracing::debug!(
             target: "glintindex::index",
             operation = "rebuild",
             "rebuild completed"
@@ -367,7 +367,7 @@ impl ApplicationService {
         }
 
         let folder_count = self.config.enabled_folders().len();
-        tracing::info!(
+        tracing::debug!(
             target: "glintindex::watcher",
             operation = "watcher",
             folders = folder_count,
@@ -402,7 +402,7 @@ impl ApplicationService {
     pub fn stop_watching(&mut self) -> Result<()> {
         if let Some(mut watcher) = self.watcher.take() {
             watcher.stop()?;
-            tracing::info!(
+            tracing::debug!(
                 target: "glintindex::watcher",
                 operation = "watcher",
                 "watcher stopped"

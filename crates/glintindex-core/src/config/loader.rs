@@ -104,6 +104,16 @@ theme = "system"
 # Set to 0 for a single commit at the end (legacy behavior).
 # Default: 500
 commit_interval = 500
+
+[logging]
+# Log level: "off", "error", "warn", "info", "debug", "trace"
+# Default: "error" (silent for end users)
+# Can be overridden by RUST_LOG environment variable or --verbose CLI flag.
+level = "error"
+
+# Automatically delete log files older than N days on startup.
+# Default: 7
+max_retention_days = 7
 "#
     )
 }

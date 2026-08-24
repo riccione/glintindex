@@ -125,7 +125,7 @@ impl<'a> FilesystemScanner<'a> {
             let entry = match entry {
                 Ok(e) => e,
                 Err(err) => {
-                    tracing::warn!(
+                    tracing::debug!(
                         target: "glintindex::scanner",
                         error = %err,
                         "directory walk error"
@@ -200,7 +200,7 @@ impl<'a> FilesystemScanner<'a> {
                             .unwrap_or("unknown")
                             .to_string();
 
-                        tracing::warn!(
+                        tracing::debug!(
                             target: "glintindex::scanner",
                             operation = "index",
                             path = %doc.path.display(),
@@ -245,7 +245,7 @@ impl<'a> FilesystemScanner<'a> {
                         .unwrap_or("unknown")
                         .to_string();
 
-                    tracing::warn!(
+                    tracing::debug!(
                         target: "glintindex::scanner",
                         operation = "index",
                         path = %path.display(),
@@ -266,7 +266,7 @@ impl<'a> FilesystemScanner<'a> {
                         .unwrap_or("unknown")
                         .to_string();
 
-                    tracing::warn!(
+                    tracing::debug!(
                         target: "glintindex::scanner",
                         operation = "index",
                         parser = %parser_name,
@@ -289,7 +289,7 @@ impl<'a> FilesystemScanner<'a> {
                         .unwrap_or("unknown")
                         .to_string();
 
-                    tracing::error!(
+                    tracing::warn!(
                         target: "glintindex::scanner",
                         operation = "index",
                         parser = %parser_name,

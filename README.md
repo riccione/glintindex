@@ -81,7 +81,7 @@ cargo build --no-default-features -p glintindex-core
 
 | Variable | Description |
 |----------|-------------|
-| `RUST_LOG` | Controls log level when using `--verbose`. Default: `info`. Example: `RUST_LOG=debug` |
+| `RUST_LOG` | Overrides log level from `config.toml` and `--verbose`. Default: `error`. Example: `RUST_LOG=debug` |
 
 ## Requirements
 
@@ -290,56 +290,92 @@ max_preview_size = 200
 
 theme = "system"  # Options: "light", "dark", "system"
 font_size = 12    # Range: 8-32
+
+[logging]
+level = "error"         # "off", "error", "warn", "info", "debug", "trace"
+max_retention_days = 7  # Auto-delete logs older than N days
 ```
 
 If no config file exists, defaults are used with the index stored at the platform-specific location (e.g., `~/.local/share/glintindex/index` on Linux).
 
 ## Logging
 
-GlintIndex uses structured logging via the `tracing` ecosystem. Logs are written to a file in the platform's standard application state directory and can optionally be output to stderr.
+GlintIndex uses structured logging via the `tracing` ecosystem. Logs are written to daily-rotating files in the platform's standard application state directory.
+
+### Log Level Resolution
+
+Log levels are resolved with the following priority (highest to lowest):
+
+1. **`RUST_LOG` environment variable** — Explicit developer override
+2. **`--verbose` CLI flag** — Forces level to `debug` and enables stderr output
+3. **`config.toml` `[logging].level`** — Persistent user setting
+4. **Hardcoded default** — `error` (silent for end users)
+
+The default level is `error`, meaning only errors are logged. To see more output, set `level = "info"` in `config.toml` or use `RUST_LOG=info`.
+
+### Log Rotation & Pruning
+
+- Log files rotate **daily** (`glintindex.log.YYYY-MM-DD`)
+- On startup, files older than `max_retention_days` (default: 7) are automatically deleted
+- Configure retention in `config.toml`:
+
+```toml
+[logging]
+max_retention_days = 14  # Keep logs for 2 weeks
+```
 
 ### Log Location
 
 | Platform | Log Path |
 |----------|----------|
-| Linux | `~/.local/state/glintindex/logs/glintindex.log` |
-| macOS | `~/Library/Logs/GlintIndex/glintindex.log` |
-| Windows | `%LOCALAPPDATA%\GlintIndex\logs\glintindex.log` |
+| Linux | `~/.local/state/glintindex/logs/` |
+| macOS | `~/Library/Logs/GlintIndex/` |
+| Windows | `%LOCALAPPDATA%\GlintIndex\logs\` |
 
 The log directory is created automatically on first run.
 
 ### What is Logged
 
-- **Parser failures**: parser name, file path, file extension, file size, error message
-- **Parser panics**: parser name, file path, recovery confirmation
-- **Indexing lifecycle events**: indexing started/completed, rebuild started/completed, watcher started/stopped
-- **Filesystem watcher events**: file indexing failures, deletion failures
-- **Warnings**: unsupported formats, corrupted documents, permission errors, file disappearance during indexing
+At the default `error` level, only application-level errors are visible:
+
+- **Parser panics**: parser name, file path, recovery confirmation (`warn!`)
+- **Unrecoverable failures**: application crashes, subsystem failures (`error!`)
+
+To see more detail, raise the log level:
+
+| Level | What appears |
+|-------|-------------|
+| `error` | Only fatal errors |
+| `warn` | + Parser panics, corruption warnings |
+| `info` | *(no info-level messages remain — all downgraded to debug)* |
+| `debug` | + Per-file indexing status, scan lifecycle, watcher events |
+| `trace` | + Tokenizer internals, detailed file metadata |
 
 ### Viewing Logs
 
-Logs are intended for troubleshooting and bug reporting. To view logs:
-
 ```bash
-# Linux
+# Linux — current log
 cat ~/.local/state/glintindex/logs/glintindex.log
 
+# Linux — today's rotated log
+cat ~/.local/state/glintindex/logs/glintindex.log.$(date +%Y-%m-%d)
+
 # macOS
-cat ~/Library/Logs/GlintIndex/glintindex.log
+ls ~/Library/Logs/GlintIndex/
 
 # Windows (PowerShell)
-cat "$env:LOCALAPPDATA\GlintIndex\logs\glintindex.log"
+dir "$env:LOCALAPPDATA\GlintIndex\logs\"
 ```
 
-### Verbose Output
+### Verbose Output (CLI)
 
-The CLI supports verbose output to stderr with the `--verbose` flag:
+The `--verbose` flag forces `debug` level and enables stderr output:
 
 ```bash
 glintindex-cli --verbose index
 ```
 
-You can also control the log level via the `RUST_LOG` environment variable:
+You can also control the log level via the `RUST_LOG` environment variable (overrides everything):
 
 ```bash
 RUST_LOG=debug glintindex-cli index
