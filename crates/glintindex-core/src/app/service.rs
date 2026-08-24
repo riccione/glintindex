@@ -563,6 +563,16 @@ impl ApplicationService {
         &self.config
     }
 
+    /// Returns a clone of the shared index service handle.
+    ///
+    /// This is used by the GUI to run searches on background threads
+    /// without blocking the GTK main loop. The returned
+    /// `Arc<Mutex<IndexService>>` can be cloned and moved into a
+    /// `std::thread::spawn` closure.
+    pub fn index_service_handle(&self) -> Arc<Mutex<IndexService>> {
+        self.index_service.clone()
+    }
+
     /// Returns references to all configured indexed folders.
     pub fn indexed_folders(&self) -> Vec<&IndexedFolder> {
         self.config.indexed_folders.iter().collect()
