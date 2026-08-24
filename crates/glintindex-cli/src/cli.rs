@@ -1,5 +1,6 @@
 use clap::Parser as _;
 use glintindex_core::AppPaths;
+use glintindex_core::config::loader;
 use glintindex_core::logging::{LoggingConfig, init as init_logging};
 
 use crate::commands::{self, Command};
@@ -27,19 +28,32 @@ pub struct Cli {
 pub fn run() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
-    // Initialize structured logging with file output
-    // The CLI always logs to file; stderr is enabled with --verbose or RUST_LOG
-    let log_to_stderr = cli.verbose || std::env::var("RUST_LOG").is_ok();
-    init_logging(LoggingConfig {
-        default_level: if cli.verbose { "debug" } else { "info" }.to_string(),
-        log_to_stderr,
-        log_to_file: true,
-    });
-
     let config_path = match &cli.config {
         Some(path) => path.clone(),
         None => AppPaths::new().config_file().to_string_lossy().into_owned(),
     };
+
+    // Load config to get logging settings (fallback to defaults on error)
+    let config = loader::load(std::path::Path::new(&config_path)).unwrap_or_default();
+
+    // Resolution order:
+    // 1. RUST_LOG env var (handled by EnvFilter::try_from_default_env)
+    // 2. --verbose flag → "debug"
+    // 3. config.toml logging.level
+    // 4. hardcoded "error"
+    let log_level = if cli.verbose {
+        "debug".to_string()
+    } else {
+        config.logging.level.clone()
+    };
+
+    let log_to_stderr = cli.verbose || std::env::var("RUST_LOG").is_ok();
+    init_logging(LoggingConfig {
+        default_level: log_level,
+        log_to_stderr,
+        log_to_file: true,
+        max_retention_days: config.logging.max_retention_days,
+    });
 
     match cli.command {
         Command::Init => commands::init::execute(&config_path),

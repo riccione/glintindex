@@ -19,17 +19,25 @@ mod tests;
 #[cfg(test)]
 pub use gtk::test_synced;
 
+use glintindex_core::config::loader;
 use glintindex_core::logging::{LoggingConfig, init as init_logging};
 use gtk::prelude::*;
 
 fn main() {
-    // Initialize structured logging with file output
-    // The GUI always logs to file; stderr is enabled for development
+    // Load config to get logging settings (fallback to defaults on error)
+    let config_path = glintindex_core::AppPaths::new().config_file();
+    let config = loader::load(&config_path).unwrap_or_default();
+
+    // Resolution order:
+    // 1. RUST_LOG env var (handled by EnvFilter::try_from_default_env)
+    // 2. config.toml logging.level
+    // 3. hardcoded "error"
     let log_to_stderr = std::env::var("RUST_LOG").is_ok();
     init_logging(LoggingConfig {
-        default_level: "info".to_string(),
+        default_level: config.logging.level.clone(),
         log_to_stderr,
         log_to_file: true,
+        max_retention_days: config.logging.max_retention_days,
     });
 
     // Bridge log crate to tracing for any remaining log:: calls
