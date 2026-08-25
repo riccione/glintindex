@@ -2,7 +2,7 @@ use std::cell::UnsafeCell;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-use tantivy::collector::TopDocs;
+use tantivy::collector::{Count, TopDocs};
 use tantivy::query::{BooleanQuery, FuzzyTermQuery, Occur, QueryParser};
 use tantivy::tokenizer::{LowerCaser, RemoveLongFilter, SimpleTokenizer, TextAnalyzer};
 use tantivy::{Index, IndexReader, IndexWriter, ReloadPolicy, Term};
@@ -277,13 +277,14 @@ impl IndexService {
             standard_query
         };
 
-        // Get total count of matching documents
-        let total = searcher.search(&*combined_query, &tantivy::collector::Count)?;
-
-        // Fetch offset + limit docs, then skip offset and take limit
-        let fetch_limit = query.offset + query.limit;
-        let collector = TopDocs::with_limit(fetch_limit).order_by_score();
-        let top_docs = searcher.search(&*combined_query, &collector)?;
+        // Single-pass search: fetch total count + top docs in one Tantivy execution.
+        // `search_limit` ensures we fetch enough documents to cover both the skip
+        // (offset) and the page (limit).
+        let search_limit = query.offset.saturating_add(query.limit);
+        let (total_hits, top_docs) = searcher.search(
+            &*combined_query,
+            &(Count, TopDocs::with_limit(search_limit).order_by_score()),
+        )?;
 
         let paginated: Vec<_> = top_docs
             .into_iter()
@@ -306,7 +307,7 @@ impl IndexService {
 
         Ok(SearchResponse::new(
             results,
-            total,
+            total_hits,
             query.offset,
             query.limit,
         ))
