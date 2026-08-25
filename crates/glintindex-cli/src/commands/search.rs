@@ -16,16 +16,16 @@ pub fn execute(config_path: &str, args: SearchArgs) -> Result<()> {
         .context("Failed to initialize application service. Check your configuration file.")?;
 
     let query = SearchQuery::new(&args.query);
-    let results = service.search(&query).context("Search failed")?;
+    let response = service.search(&query).context("Search failed")?;
 
-    if results.is_empty() {
+    if response.is_empty() {
         println!("No results found for: {}", args.query);
         return Ok(());
     }
 
-    println!("{} results found\n", results.len());
+    println!("{} results found\n", response.results.len());
 
-    for (i, result) in results.iter().enumerate() {
+    for (i, result) in response.results.iter().enumerate() {
         println!("{}. {}", i + 1, result.document.filename());
         println!();
         println!("{}", result.document.path.display());
@@ -39,7 +39,7 @@ pub fn execute(config_path: &str, args: SearchArgs) -> Result<()> {
             }
         }
 
-        if i < results.len() - 1 {
+        if i < response.results.len() - 1 {
             println!();
         }
     }

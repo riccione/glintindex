@@ -16,7 +16,7 @@ pub use app::{ApplicationService, ApplicationStatistics, WatcherStatus};
 pub use config::{AppConfig, AppPaths, Theme};
 pub use error::{GlintIndexError, Result};
 pub use index::{IndexService, IndexStatistics};
-pub use model::{Document, IndexedFolder, SearchQuery, SearchResult};
+pub use model::{Document, IndexedFolder, SearchQuery, SearchResponse, SearchResult};
 pub use parser::{DocumentMetadata, DocumentParser, ParseResult, ParserRegistry, PlainTextParser};
 pub use preview::{
     Encoding, EncodingResult, HighlightedMatch, LoadConfig, LoadResult, PreviewConfig, PreviewLine,
