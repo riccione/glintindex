@@ -114,6 +114,17 @@ level = "error"
 # Automatically delete log files older than N days on startup.
 # Default: 7
 max_retention_days = 7
+
+[indexing]
+# Skip text extraction for files larger than N megabytes.
+# The file is still indexed by path and filename (metadata-only).
+# Default: 50
+max_file_size_mb = 50
+
+# Maximum time allowed to parse a single document in seconds.
+# If parsing exceeds this, the file is indexed metadata-only.
+# Default: 10
+parser_timeout_secs = 10
 "#
     )
 }
