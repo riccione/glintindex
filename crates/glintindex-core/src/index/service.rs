@@ -3,7 +3,6 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use tantivy::collector::TopDocs;
-use tantivy::directory::MmapDirectory;
 use tantivy::query::{BooleanQuery, FuzzyTermQuery, Occur, QueryParser};
 use tantivy::tokenizer::{LowerCaser, RemoveLongFilter, SimpleTokenizer, TextAnalyzer};
 use tantivy::{Index, IndexReader, IndexWriter, ReloadPolicy, Term};
@@ -68,8 +67,36 @@ impl IndexService {
         std::fs::create_dir_all(index_path)?;
 
         let (schema, fields) = create_schema();
-        let dir = MmapDirectory::open(index_path)?;
-        let index = Index::open_or_create(dir, schema)?;
+
+        // Try to open an existing index; if schema doesn't match, recreate.
+        let index = match Index::open_in_dir(index_path) {
+            Ok(existing) => {
+                if existing.schema() == schema {
+                    existing
+                } else {
+                    tracing::info!(
+                        target: "glintindex::index",
+                        "schema mismatch detected, recreating index"
+                    );
+                    // Drop old index to release file handles / memory maps
+                    drop(existing);
+                    // Remove all index files but preserve the directory
+                    if let Ok(entries) = std::fs::read_dir(index_path) {
+                        for entry in entries.flatten() {
+                            let path = entry.path();
+                            if path.is_file() {
+                                let _ = std::fs::remove_file(&path);
+                            }
+                        }
+                    }
+                    Index::create_in_dir(index_path, schema)?
+                }
+            }
+            Err(_) => {
+                // No existing index or unrecognizable error — create fresh
+                Index::create_in_dir(index_path, schema)?
+            }
+        };
 
         // Register a custom tokenizer that strips tokens longer than 40
         // characters. This prevents Tantivy's SimpleTokenizer from spinning

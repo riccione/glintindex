@@ -11,6 +11,7 @@ pub struct IndexFields {
     pub content: tantivy::schema::Field,
     pub modified: tantivy::schema::Field,
     pub size: tantivy::schema::Field,
+    pub is_metadata_only: tantivy::schema::Field,
 }
 
 /// Creates the Tantivy schema used by GlintIndex.
@@ -26,6 +27,7 @@ pub fn create_schema() -> (Schema, IndexFields) {
     let content = builder.add_text_field("content", TEXT | STORED);
     let modified = builder.add_u64_field("modified", STORED);
     let size = builder.add_u64_field("size", STORED);
+    let is_metadata_only = builder.add_u64_field("is_metadata_only", STORED);
 
     let fields = IndexFields {
         path,
@@ -34,6 +36,7 @@ pub fn create_schema() -> (Schema, IndexFields) {
         content,
         modified,
         size,
+        is_metadata_only,
     };
 
     (builder.build(), fields)
@@ -52,5 +55,6 @@ mod tests {
         assert!(schema.get_field("content").is_ok());
         assert!(schema.get_field("modified").is_ok());
         assert!(schema.get_field("size").is_ok());
+        assert!(schema.get_field("is_metadata_only").is_ok());
     }
 }

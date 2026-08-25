@@ -176,7 +176,9 @@ impl ApplicationService {
         let scanner =
             FilesystemScanner::with_custom_ignores(&service, &self.config.ignored_folders)
                 .with_progress(reporter)
-                .with_commit_interval(self.config.commit_interval);
+                .with_commit_interval(self.config.commit_interval)
+                .with_max_file_size(self.config.indexing.max_file_size_mb * 1024 * 1024)
+                .with_parser_timeout(self.config.indexing.parser_timeout_secs);
         let stats = scanner.scan_directory(folder)?;
 
         tracing::debug!(
@@ -232,7 +234,9 @@ impl ApplicationService {
         let scanner =
             FilesystemScanner::with_custom_ignores(&service, &self.config.ignored_folders)
                 .with_progress(reporter)
-                .with_commit_interval(self.config.commit_interval);
+                .with_commit_interval(self.config.commit_interval)
+                .with_max_file_size(self.config.indexing.max_file_size_mb * 1024 * 1024)
+                .with_parser_timeout(self.config.indexing.parser_timeout_secs);
         let folders: Vec<PathBuf> = self
             .config
             .enabled_folders()
@@ -793,6 +797,12 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let config_path = tmp.path().join("config.toml");
         crate::config::loader::save(&config_path, &AppConfig::default()).unwrap();
+        // Use a fresh index directory to avoid schema mismatch with existing indexes
+        let config = AppConfig {
+            index_directory: tmp.path().join("fresh_index"),
+            ..AppConfig::default()
+        };
+        crate::config::loader::save(&config_path, &config).unwrap();
         let service = ApplicationService::with_config_path(&config_path).unwrap();
         assert!(service.index_path().exists());
     }

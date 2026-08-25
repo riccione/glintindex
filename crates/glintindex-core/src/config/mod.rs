@@ -11,5 +11,5 @@ pub mod paths;
 #[allow(clippy::module_inception)]
 mod config;
 
-pub use config::{AppConfig, LoggingSettings, Theme};
+pub use config::{AppConfig, IndexingSettings, LoggingSettings, Theme};
 pub use paths::AppPaths;

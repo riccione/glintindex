@@ -15,6 +15,9 @@ pub struct Document {
     pub modified: std::time::SystemTime,
     /// Extracted text content of the file.
     pub content: String,
+    /// Whether this document was indexed by metadata only (path/filename)
+    /// due to extraction failure, timeout, or size limit.
+    pub is_metadata_only: bool,
 }
 
 impl Document {
@@ -25,6 +28,21 @@ impl Document {
             size,
             modified,
             content,
+            is_metadata_only: false,
+        }
+    }
+
+    /// Creates a metadata-only document (path, filename, mtime, size only).
+    ///
+    /// Used when text extraction fails, times out, or exceeds size limits.
+    /// The file is still searchable by path and filename.
+    pub fn metadata_only(path: PathBuf, size: u64, modified: std::time::SystemTime) -> Self {
+        Self {
+            path,
+            size,
+            modified,
+            content: String::new(),
+            is_metadata_only: true,
         }
     }
 
@@ -98,5 +116,17 @@ mod tests {
         let json = serde_json::to_string(&doc).unwrap();
         let restored: Document = serde_json::from_str(&json).unwrap();
         assert_eq!(doc, restored);
+    }
+
+    #[test]
+    fn metadata_only_document() {
+        let doc = Document::metadata_only(
+            PathBuf::from("/tmp/large.bin"),
+            1024 * 1024 * 100,
+            UNIX_EPOCH,
+        );
+        assert!(doc.is_metadata_only);
+        assert!(doc.content.is_empty());
+        assert_eq!(doc.size, 1024 * 1024 * 100);
     }
 }

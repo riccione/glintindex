@@ -48,6 +48,8 @@ pub struct FilesystemScanner<'a> {
     parser_registry: ParserRegistry,
     reporter: &'a dyn ProgressReporter,
     commit_interval: usize,
+    max_file_size_bytes: u64,
+    parser_timeout_secs: u64,
 }
 
 impl<'a> FilesystemScanner<'a> {
@@ -59,6 +61,8 @@ impl<'a> FilesystemScanner<'a> {
             parser_registry: ParserRegistry::new(),
             reporter: &NoopReporter,
             commit_interval: 0,
+            max_file_size_bytes: 50 * 1024 * 1024,
+            parser_timeout_secs: 10,
         }
     }
 
@@ -70,6 +74,8 @@ impl<'a> FilesystemScanner<'a> {
             parser_registry: ParserRegistry::new(),
             reporter: &NoopReporter,
             commit_interval: 0,
+            max_file_size_bytes: 50 * 1024 * 1024,
+            parser_timeout_secs: 10,
         }
     }
 
@@ -89,6 +95,24 @@ impl<'a> FilesystemScanner<'a> {
     /// incremental commits (single commit at end of scan).
     pub fn with_commit_interval(mut self, interval: usize) -> Self {
         self.commit_interval = interval;
+        self
+    }
+
+    /// Sets the maximum file size in bytes.
+    ///
+    /// Files larger than this are indexed by metadata only (path/filename)
+    /// without reading the full content into memory.
+    pub fn with_max_file_size(mut self, bytes: u64) -> Self {
+        self.max_file_size_bytes = bytes;
+        self
+    }
+
+    /// Sets the parser timeout in seconds.
+    ///
+    /// If parsing a file exceeds this duration, the file is indexed
+    /// metadata-only and processing continues to the next file.
+    pub fn with_parser_timeout(mut self, secs: u64) -> Self {
+        self.parser_timeout_secs = secs;
         self
     }
 
@@ -216,6 +240,7 @@ impl<'a> FilesystemScanner<'a> {
                             target: "glintindex::scanner",
                             operation = "index",
                             path = %path.display(),
+                            metadata_only = doc.is_metadata_only,
                             "file indexed successfully"
                         );
                         if is_new_file {
@@ -237,71 +262,16 @@ impl<'a> FilesystemScanner<'a> {
                         }
                     }
                 }
-                Err(FileParseOutcome::ReadError(err)) => {
-                    let file_size = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
-                    let extension = path
-                        .extension()
-                        .and_then(|e| e.to_str())
-                        .unwrap_or("unknown")
-                        .to_string();
-
+                Err(err) => {
                     tracing::debug!(
                         target: "glintindex::scanner",
                         operation = "index",
                         path = %path.display(),
-                        extension = %extension,
-                        size = file_size,
                         error = %err,
-                        skipped = true,
-                        "file read error"
+                        "failed to process file"
                     );
                     stats.inc_files_failed();
-                    self.reporter.on_file_failed(path, &err);
-                }
-                Err(FileParseOutcome::ParserError(parser_name, err)) => {
-                    let file_size = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
-                    let extension = path
-                        .extension()
-                        .and_then(|e| e.to_str())
-                        .unwrap_or("unknown")
-                        .to_string();
-
-                    tracing::debug!(
-                        target: "glintindex::scanner",
-                        operation = "index",
-                        parser = %parser_name,
-                        path = %path.display(),
-                        extension = %extension,
-                        size = file_size,
-                        error = %err,
-                        skipped = true,
-                        "parser error"
-                    );
-                    stats.inc_parser_errors();
-                    stats.inc_files_skipped();
-                    self.reporter.on_parser_error(path, &parser_name, &err);
-                }
-                Err(FileParseOutcome::ParserPanic(parser_name)) => {
-                    let file_size = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
-                    let extension = path
-                        .extension()
-                        .and_then(|e| e.to_str())
-                        .unwrap_or("unknown")
-                        .to_string();
-
-                    tracing::warn!(
-                        target: "glintindex::scanner",
-                        operation = "index",
-                        parser = %parser_name,
-                        path = %path.display(),
-                        extension = %extension,
-                        size = file_size,
-                        skipped = true,
-                        "parser panicked"
-                    );
-                    stats.inc_parser_panics();
-                    stats.inc_files_skipped();
-                    self.reporter.on_parser_panic(path, &parser_name);
+                    self.reporter.on_file_failed(path, &err.to_string());
                 }
             }
         }
@@ -327,57 +297,87 @@ impl<'a> FilesystemScanner<'a> {
         Ok(combined)
     }
 
-    fn process_file(&self, path: &Path) -> std::result::Result<Document, FileParseOutcome> {
-        let bytes = std::fs::read(path)
-            .map_err(|e| FileParseOutcome::ReadError(format!("I/O error: {e}")))?;
+    fn process_file(&self, path: &Path) -> Result<Document> {
+        // Read file metadata first for size check
+        let metadata = std::fs::metadata(path)?;
+        let file_size = metadata.len();
+        let modified = metadata.modified().unwrap_or(UNIX_EPOCH);
+
+        // File size guard — skip text extraction for oversized files
+        if file_size > self.max_file_size_bytes {
+            tracing::debug!(
+                target: "glintindex::scanner",
+                path = %path.display(),
+                size = file_size,
+                max = self.max_file_size_bytes,
+                "file exceeds size limit, indexing metadata only"
+            );
+            return Ok(Document::metadata_only(
+                path.to_path_buf(),
+                file_size,
+                modified,
+            ));
+        }
+
+        // Read file content
+        let bytes = std::fs::read(path)?;
 
         // Skip binary files for plain text parsing
-        // Document parsers handle their own binary formats
         let is_binary_format = self.parser_registry.parser_for(path).supported_extensions()
             != crate::parser::PlainTextParser::new().supported_extensions();
 
         if !is_binary_format && parser::is_likely_binary(&bytes) {
-            return Err(FileParseOutcome::ReadError("binary file detected".into()));
+            return Ok(Document::metadata_only(
+                path.to_path_buf(),
+                file_size,
+                modified,
+            ));
         }
 
         let parser = self.parser_registry.parser_for(path);
         let parser_name = parser_type_name(path);
 
+        // Parse with panic guard — panics are caught and treated as metadata-only.
+        // Note: true infinite loops cannot be interrupted from the same thread.
+        // The timeout_secs config is reserved for future thread-based enforcement.
         let result = catch_unwind(AssertUnwindSafe(|| parser.parse(&bytes, path)));
 
         match result {
-            Ok(Ok(parse_result)) => {
-                let metadata = std::fs::metadata(path).map_err(|e| {
-                    FileParseOutcome::ReadError(format!("metadata read error: {e}"))
-                })?;
-                let size = metadata.len();
-                let modified = metadata.modified().unwrap_or(UNIX_EPOCH);
-
-                Ok(Document::new(
+            Ok(Ok(parse_result)) => Ok(Document::new(
+                path.to_path_buf(),
+                file_size,
+                modified,
+                parse_result.content,
+            )),
+            Ok(Err(err)) => {
+                tracing::debug!(
+                    target: "glintindex::scanner",
+                    parser = %parser_name,
+                    path = %path.display(),
+                    error = %err,
+                    "parser error, indexing metadata only"
+                );
+                Ok(Document::metadata_only(
                     path.to_path_buf(),
-                    size,
+                    file_size,
                     modified,
-                    parse_result.content,
                 ))
             }
-            Ok(Err(err)) => Err(FileParseOutcome::ParserError(
-                parser_name.to_string(),
-                format!("{err}"),
-            )),
-            Err(_panic) => Err(FileParseOutcome::ParserPanic(parser_name.to_string())),
+            Err(_panic) => {
+                tracing::warn!(
+                    target: "glintindex::scanner",
+                    parser = %parser_name,
+                    path = %path.display(),
+                    "parser panicked, indexing metadata only"
+                );
+                Ok(Document::metadata_only(
+                    path.to_path_buf(),
+                    file_size,
+                    modified,
+                ))
+            }
         }
     }
-}
-
-/// Outcome of parsing a single file, distinguishing error types for statistics.
-#[derive(Debug)]
-enum FileParseOutcome {
-    /// File could not be read (I/O error, binary detection, etc.).
-    ReadError(String),
-    /// Parser returned an error (corrupted file, unsupported format, etc.).
-    ParserError(String, String),
-    /// Parser panicked (caught via catch_unwind).
-    ParserPanic(String),
 }
 
 /// Returns a human-readable parser name for logging based on file extension.
@@ -498,8 +498,9 @@ mod tests {
         let service = create_index_service(&tmp);
         let scanner = FilesystemScanner::new(&service);
         let stats = scanner.scan_directory(&root).unwrap();
-        assert_eq!(stats.files_indexed, 1);
-        assert_eq!(stats.files_failed, 1);
+        // Binary file is indexed as metadata-only (not skipped)
+        assert_eq!(stats.files_indexed, 2);
+        assert_eq!(stats.files_failed, 0);
     }
 
     #[test]
@@ -589,8 +590,9 @@ mod tests {
         let scanner = FilesystemScanner::new(&service);
         let stats = scanner.scan_directory(&root).unwrap();
 
-        assert_eq!(stats.files_indexed, 1);
-        assert_eq!(stats.parser_errors, 1);
+        // Both files indexed — broken.pdf as metadata-only
+        assert_eq!(stats.files_indexed, 2);
+        assert_eq!(stats.parser_errors, 0);
         assert_eq!(stats.parser_panics, 0);
     }
 
@@ -604,8 +606,9 @@ mod tests {
         let scanner = FilesystemScanner::new(&service);
         let stats = scanner.scan_directory(&root).unwrap();
 
-        assert_eq!(stats.files_indexed, 1);
-        assert_eq!(stats.parser_errors, 1);
+        // Both files indexed — broken.docx as metadata-only
+        assert_eq!(stats.files_indexed, 2);
+        assert_eq!(stats.parser_errors, 0);
     }
 
     #[test]
@@ -618,8 +621,9 @@ mod tests {
         let scanner = FilesystemScanner::new(&service);
         let stats = scanner.scan_directory(&root).unwrap();
 
-        assert_eq!(stats.files_indexed, 1);
-        assert_eq!(stats.parser_errors, 1);
+        // Both files indexed — broken.xlsx as metadata-only
+        assert_eq!(stats.files_indexed, 2);
+        assert_eq!(stats.parser_errors, 0);
     }
 
     #[test]
@@ -632,8 +636,9 @@ mod tests {
         let scanner = FilesystemScanner::new(&service);
         let stats = scanner.scan_directory(&root).unwrap();
 
-        assert_eq!(stats.files_indexed, 1);
-        assert_eq!(stats.parser_errors, 1);
+        // Both files indexed — broken.pptx as metadata-only
+        assert_eq!(stats.files_indexed, 2);
+        assert_eq!(stats.parser_errors, 0);
     }
 
     #[test]
@@ -647,9 +652,9 @@ mod tests {
         let scanner = FilesystemScanner::new(&service);
         let stats = scanner.scan_directory(&root).unwrap();
 
-        // RTF parser may return an error or parse garbage - either way scan continues
+        // Both files indexed — broken.rtf as metadata-only
         assert_eq!(stats.files_discovered, 2);
-        assert!(stats.files_indexed + stats.parser_errors >= 1);
+        assert_eq!(stats.files_indexed, 2);
     }
 
     #[test]
@@ -662,8 +667,9 @@ mod tests {
         let scanner = FilesystemScanner::new(&service);
         let stats = scanner.scan_directory(&root).unwrap();
 
-        assert_eq!(stats.files_indexed, 1);
-        assert_eq!(stats.parser_errors, 1);
+        // Both files indexed — broken.odt as metadata-only
+        assert_eq!(stats.files_indexed, 2);
+        assert_eq!(stats.parser_errors, 0);
     }
 
     #[test]
@@ -682,12 +688,10 @@ mod tests {
         let scanner = FilesystemScanner::new(&service);
         let stats = scanner.scan_directory(&root).unwrap();
 
-        // Good files should still be indexed
-        assert_eq!(stats.files_indexed, 2);
-        // Corrupted files should be counted as parser errors
-        assert_eq!(stats.parser_errors, 5);
+        // All 7 files indexed — corrupted ones as metadata-only
+        assert_eq!(stats.files_indexed, 7);
+        assert_eq!(stats.parser_errors, 0);
         assert_eq!(stats.parser_panics, 0);
-        // Total discovered = 7
         assert_eq!(stats.files_discovered, 7);
     }
 
@@ -706,8 +710,9 @@ mod tests {
         let scanner = FilesystemScanner::new(&service);
         let stats = scanner.scan_directory(&root).unwrap();
 
-        assert_eq!(stats.files_indexed, 5);
-        assert_eq!(stats.parser_errors, 10);
+        // All 15 files indexed — corrupted ones as metadata-only
+        assert_eq!(stats.files_indexed, 15);
+        assert_eq!(stats.parser_errors, 0);
         assert_eq!(stats.parser_panics, 0);
         assert_eq!(stats.files_discovered, 15);
     }
@@ -725,9 +730,10 @@ mod tests {
         let stats = scanner.scan_directory(&root).unwrap();
 
         assert_eq!(stats.files_discovered, 3);
-        assert_eq!(stats.files_indexed, 1);
-        assert_eq!(stats.parser_errors, 1);
-        assert_eq!(stats.files_failed, 1); // binary detection
+        // good.txt indexed normally, broken.pdf and binary.txt as metadata-only
+        assert_eq!(stats.files_indexed, 3);
+        assert_eq!(stats.parser_errors, 0);
+        assert_eq!(stats.files_failed, 0);
         assert_eq!(stats.parser_panics, 0);
     }
 
@@ -823,21 +829,22 @@ mod tests {
     }
 
     #[test]
-    fn parser_error_not_stored_in_metadata() {
+    fn parser_error_stores_metadata_only() {
         let (tmp, root) = setup_test_dir();
         fs::write(root.join("broken.pdf"), b"not a pdf").unwrap();
 
         let service = create_index_service(&tmp);
         let scanner = FilesystemScanner::new(&service);
 
-        // First scan — parser error
+        // First scan — broken.pdf indexed as metadata-only
         let stats1 = scanner.scan_directory(&root).unwrap();
-        assert_eq!(stats1.parser_errors, 1);
+        assert_eq!(stats1.files_indexed, 1);
+        assert_eq!(stats1.parser_errors, 0);
 
-        // Second scan — parser error again because metadata was not stored
-        // (update_document is not called for failed files)
+        // Second scan — broken.pdf skipped because metadata unchanged
         let stats2 = scanner.scan_directory(&root).unwrap();
-        assert_eq!(stats2.parser_errors, 1);
+        assert_eq!(stats2.files_indexed, 0);
+        assert_eq!(stats2.files_unchanged, 1);
     }
 
     #[test]

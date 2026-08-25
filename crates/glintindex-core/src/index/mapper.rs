@@ -30,6 +30,11 @@ pub fn document_to_tantivy(doc: &Document, fields: &IndexFields) -> TantivyDocum
 
     tantivy_doc.add_u64(fields.size, doc.size);
 
+    tantivy_doc.add_u64(
+        fields.is_metadata_only,
+        if doc.is_metadata_only { 1 } else { 0 },
+    );
+
     tantivy_doc
 }
 
@@ -57,7 +62,14 @@ pub fn tantivy_to_search_result(
         .unwrap_or("")
         .to_string();
 
-    let document = Document::new(path, size, modified, content);
+    let is_metadata_only = doc
+        .get_first(fields.is_metadata_only)
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0)
+        != 0;
+
+    let mut document = Document::new(path, size, modified, content);
+    document.is_metadata_only = is_metadata_only;
 
     Some(SearchResult::new(document, score, snippet))
 }
@@ -132,6 +144,12 @@ mod tests {
         assert_eq!(
             tantivy_doc.get_first(fields.size).and_then(|v| v.as_u64()),
             Some(512)
+        );
+        assert_eq!(
+            tantivy_doc
+                .get_first(fields.is_metadata_only)
+                .and_then(|v| v.as_u64()),
+            Some(0)
         );
     }
 }

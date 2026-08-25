@@ -60,6 +60,9 @@ pub struct AppConfig {
     /// Logging configuration.
     #[serde(default)]
     pub logging: LoggingSettings,
+    /// Indexing configuration.
+    #[serde(default)]
+    pub indexing: IndexingSettings,
 }
 
 /// Returns the default font size for deserialization.
@@ -91,6 +94,16 @@ fn default_max_retention_days() -> u64 {
     7
 }
 
+/// Returns the default max file size in megabytes for deserialization.
+fn default_max_file_size_mb() -> u64 {
+    50
+}
+
+/// Returns the default parser timeout in seconds for deserialization.
+fn default_parser_timeout_secs() -> u64 {
+    10
+}
+
 /// Logging configuration.
 ///
 /// Controls log level, output destination, and log file retention.
@@ -118,6 +131,31 @@ impl Default for LoggingSettings {
     }
 }
 
+/// Indexing configuration.
+///
+/// Controls limits for file processing during indexing to prevent
+/// excessive resource usage on pathological files.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct IndexingSettings {
+    /// Skip text extraction for files larger than N megabytes.
+    /// The file is still indexed by path and filename (metadata-only).
+    #[serde(default = "default_max_file_size_mb")]
+    pub max_file_size_mb: u64,
+    /// Maximum time allowed to parse a single document in seconds.
+    /// If parsing exceeds this, the file is indexed metadata-only.
+    #[serde(default = "default_parser_timeout_secs")]
+    pub parser_timeout_secs: u64,
+}
+
+impl Default for IndexingSettings {
+    fn default() -> Self {
+        Self {
+            max_file_size_mb: default_max_file_size_mb(),
+            parser_timeout_secs: default_parser_timeout_secs(),
+        }
+    }
+}
+
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
@@ -131,6 +169,7 @@ impl Default for AppConfig {
             main_split_ratio: default_main_split_ratio(),
             commit_interval: default_commit_interval(),
             logging: LoggingSettings::default(),
+            indexing: IndexingSettings::default(),
         }
     }
 }
@@ -193,6 +232,8 @@ mod tests {
         assert_eq!(config.commit_interval, 500);
         assert_eq!(config.logging.level, "error");
         assert_eq!(config.logging.max_retention_days, 7);
+        assert_eq!(config.indexing.max_file_size_mb, 50);
+        assert_eq!(config.indexing.parser_timeout_secs, 10);
     }
 
     #[test]

@@ -152,15 +152,19 @@ fn test_toggle_button_enables_disables_folder() {
         std::fs::create_dir(&folder_path).unwrap();
 
         let config_path = tmp.path().join("config.toml");
+        let index_dir = tmp.path().join("test_index");
         std::fs::write(
             &config_path,
-            r#"indexed_folders = []
+            format!(
+                r#"indexed_folders = []
 ignored_folders = []
-index_directory = "/tmp/glintindex-test-index"
+index_directory = "{}"
 theme = "system"
 max_preview_size = 200
 commit_interval = 500
 "#,
+                index_dir.display()
+            ),
         )
         .unwrap();
         let mut svc = glintindex_core::ApplicationService::with_config_path(&config_path).unwrap();
@@ -208,15 +212,19 @@ fn test_remove_button_deletes_folder() {
         std::fs::create_dir(&folder_path).unwrap();
 
         let config_path = tmp.path().join("config.toml");
+        let index_dir = tmp.path().join("test_index");
         std::fs::write(
             &config_path,
-            r#"indexed_folders = []
+            format!(
+                r#"indexed_folders = []
 ignored_folders = []
-index_directory = "/tmp/glintindex-test-index"
+index_directory = "{}"
 theme = "system"
 max_preview_size = 200
 commit_interval = 500
 "#,
+                index_dir.display()
+            ),
         )
         .unwrap();
         let mut svc = glintindex_core::ApplicationService::with_config_path(&config_path).unwrap();
