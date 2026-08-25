@@ -1,26 +1,27 @@
 use crate::error::Result;
-use crate::model::{SearchQuery, SearchResult};
+use crate::model::{SearchQuery, SearchResponse};
 
 /// A trait for executing searches against the document index.
 ///
 /// Implementations of this trait translate a [`SearchQuery`] into a
-/// ranked list of [`SearchResult`] items. The trait is decoupled from
+/// paginated [`SearchResponse`]. The trait is decoupled from
 /// any specific search backend so that the core API remains stable.
 pub trait SearchEngine {
     /// Executes a search query and returns matching results.
     ///
-    /// Results are returned in descending order of relevance score.
+    /// Results are returned in descending order of relevance score,
+    /// wrapped in a [`SearchResponse`] with pagination metadata.
     ///
     /// # Errors
     ///
     /// Returns an error if the search cannot be performed.
-    fn search(&self, query: &SearchQuery) -> Result<Vec<SearchResult>>;
+    fn search(&self, query: &SearchQuery) -> Result<SearchResponse>;
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::Document;
+    use crate::model::{Document, SearchResult};
     use std::path::PathBuf;
     use std::time::UNIX_EPOCH;
 
@@ -28,14 +29,19 @@ mod tests {
     struct DummySearchEngine;
 
     impl SearchEngine for DummySearchEngine {
-        fn search(&self, _query: &SearchQuery) -> Result<Vec<SearchResult>> {
+        fn search(&self, _query: &SearchQuery) -> Result<SearchResponse> {
             let doc = Document::new(
                 PathBuf::from("/tmp/result.txt"),
                 50,
                 UNIX_EPOCH,
                 "matched content".into(),
             );
-            Ok(vec![SearchResult::new(doc, 1.0, "matched".into())])
+            Ok(SearchResponse::new(
+                vec![SearchResult::new(doc, 1.0, "matched".into())],
+                1,
+                0,
+                20,
+            ))
         }
     }
 
@@ -43,8 +49,9 @@ mod tests {
     fn dummy_search_returns_results() {
         let engine = DummySearchEngine;
         let query = SearchQuery::new("test");
-        let results = engine.search(&query).unwrap();
-        assert_eq!(results.len(), 1);
-        assert!((results[0].score - 1.0).abs() < f32::EPSILON);
+        let response = engine.search(&query).unwrap();
+        assert_eq!(response.results.len(), 1);
+        assert!((response.results[0].score - 1.0).abs() < f32::EPSILON);
+        assert_eq!(response.total, 1);
     }
 }
