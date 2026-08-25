@@ -32,7 +32,7 @@ pub fn build_toolbar(
     // ── Background search channel ──────────────────────────────
     // Results are sent from a background thread via mpsc and
     // drained on the GTK main loop by a periodic poll timer.
-    let (tx, rx) = mpsc::channel::<(u64, Vec<glintindex_core::SearchResult>)>();
+    let (tx, rx) = mpsc::channel::<(u64, glintindex_core::SearchResponse)>();
     let rx = Rc::new(RefCell::new(rx));
 
     // Track the latest query ID applied to the UI so stale
@@ -48,7 +48,7 @@ pub fn build_toolbar(
         let latest_id = latest_applied_id.clone();
         gtk::glib::timeout_add_local(std::time::Duration::from_millis(50), move || {
             // Drain all pending messages, keeping only the newest
-            let mut newest: Option<(u64, Vec<glintindex_core::SearchResult>)> = None;
+            let mut newest: Option<(u64, glintindex_core::SearchResponse)> = None;
             while let Ok(msg) = rx.borrow().try_recv() {
                 match &newest {
                     Some((id, _)) if msg.0 <= *id => {}
@@ -56,11 +56,11 @@ pub fn build_toolbar(
                 }
             }
 
-            if let Some((query_id, results)) = newest {
+            if let Some((query_id, response)) = newest {
                 if query_id >= *latest_id.borrow() {
                     *latest_id.borrow_mut() = query_id;
                     let mut st = state_clone.borrow_mut();
-                    st.results = results;
+                    st.results = response.results;
                     st.selected_index = None;
                     let count = st.results.len();
                     st.status = format!(
@@ -137,8 +137,8 @@ pub fn build_toolbar(
                             svc.and_then(|svc| svc.search(&query_obj))
                         };
                         match result {
-                            Ok(results) => {
-                                let _ = tx.send((query_id, results));
+                            Ok(response) => {
+                                let _ = tx.send((query_id, response));
                             }
                             Err(e) => {
                                 tracing::warn!(
@@ -146,7 +146,10 @@ pub fn build_toolbar(
                                     error = %e,
                                     "background search failed"
                                 );
-                                let _ = tx.send((query_id, Vec::new()));
+                                let _ = tx.send((
+                                    query_id,
+                                    glintindex_core::SearchResponse::new(Vec::new(), 0, 0, 0),
+                                ));
                             }
                         }
                     });
@@ -191,8 +194,8 @@ pub fn build_toolbar(
                     svc.and_then(|svc| svc.search(&query_obj))
                 };
                 match result {
-                    Ok(results) => {
-                        let _ = tx.send((query_id, results));
+                    Ok(response) => {
+                        let _ = tx.send((query_id, response));
                     }
                     Err(e) => {
                         tracing::warn!(

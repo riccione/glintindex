@@ -947,9 +947,9 @@ mod tests {
         assert_eq!(stats1.files_indexed, 2);
 
         // Search for "apple" — should be found after commit
-        let results = service.search(&SearchQuery::new("apple")).unwrap();
+        let response = service.search(&SearchQuery::new("apple")).unwrap();
         assert!(
-            !results.is_empty(),
+            !response.results.is_empty(),
             "document 'a.txt' should be searchable after commit"
         );
 
@@ -962,9 +962,9 @@ mod tests {
         assert_eq!(stats2.files_indexed, 2);
 
         // Search for "cherry" — should be found after second commit
-        let results = service.search(&SearchQuery::new("cherry")).unwrap();
+        let response = service.search(&SearchQuery::new("cherry")).unwrap();
         assert!(
-            !results.is_empty(),
+            !response.results.is_empty(),
             "document 'c.txt' should be searchable after second commit"
         );
     }

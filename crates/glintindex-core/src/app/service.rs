@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 use crate::config::{AppConfig, AppPaths, loader};
 use crate::error::{GlintIndexError, Result};
 use crate::index::IndexService;
-use crate::model::{IndexedFolder, SearchQuery, SearchResult};
+use crate::model::{IndexedFolder, SearchQuery, SearchResponse};
 use crate::scanner::{FilesystemScanner, NoopReporter, ProgressReporter, ScannerStatistics};
 use crate::tasks::{JobId, JobStatus, Progress, TaskManager};
 use crate::watcher::FileWatcher;
@@ -270,7 +270,7 @@ impl ApplicationService {
     /// # Errors
     ///
     /// Returns an error if the query cannot be parsed or the search fails.
-    pub fn search(&self, query: &SearchQuery) -> Result<Vec<SearchResult>> {
+    pub fn search(&self, query: &SearchQuery) -> Result<SearchResponse> {
         use crate::traits::SearchEngine;
         let service = self
             .index_service
@@ -892,9 +892,9 @@ mod tests {
         service.index_folder(&scan_dir).unwrap();
 
         let query = SearchQuery::new("hello");
-        let results = service.search(&query).unwrap();
-        assert!(!results.is_empty());
-        assert_eq!(results[0].document.filename(), "hello.txt");
+        let response = service.search(&query).unwrap();
+        assert!(!response.results.is_empty());
+        assert_eq!(response.results[0].document.filename(), "hello.txt");
     }
 
     #[test]
@@ -904,8 +904,8 @@ mod tests {
         let service = ApplicationService::new(config).unwrap();
 
         let query = SearchQuery::new("anything");
-        let results = service.search(&query).unwrap();
-        assert!(results.is_empty());
+        let response = service.search(&query).unwrap();
+        assert!(response.is_empty());
     }
 
     #[test]

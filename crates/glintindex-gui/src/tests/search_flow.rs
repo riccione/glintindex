@@ -24,7 +24,7 @@ fn test_search_result_row_count_matches_state() {
     {
         let mut st = state.borrow_mut();
         let query_obj = glintindex_core::SearchQuery::new("beta");
-        st.results = st.service.search(&query_obj).unwrap_or_default();
+        st.results = st.service.search(&query_obj).unwrap_or_default().results;
     }
 
     let listbox = gtk::ListBox::builder()
@@ -197,7 +197,7 @@ fn test_search_result_snippet_is_non_empty() {
 fn test_search_on_empty_index_returns_empty() {
     let (service, _tmp) = super::setup_test_service();
     let query_obj = glintindex_core::SearchQuery::new("anything");
-    let results = service.search(&query_obj).unwrap_or_default();
+    let results = service.search(&query_obj).unwrap_or_default().results;
     assert!(results.is_empty(), "Empty index should return no results");
 }
 
@@ -222,7 +222,7 @@ fn test_search_with_special_characters() {
     {
         let mut st = state.borrow_mut();
         let query_obj = glintindex_core::SearchQuery::new("fn main");
-        st.results = st.service.search(&query_obj).unwrap_or_default();
+        st.results = st.service.search(&query_obj).unwrap_or_default().results;
     }
 
     let st = state.borrow();
@@ -254,7 +254,7 @@ fn test_activate_key_triggers_search() {
         st.query = query.clone();
         if !query.trim().is_empty() {
             let query_obj = glintindex_core::SearchQuery::new(&query);
-            st.results = st.service.search(&query_obj).unwrap_or_default();
+            st.results = st.service.search(&query_obj).unwrap_or_default().results;
         }
     });
 
@@ -284,7 +284,7 @@ fn test_search_multiple_results_ordered_by_score() {
     {
         let mut st = state.borrow_mut();
         let query_obj = glintindex_core::SearchQuery::new("beta");
-        st.results = st.service.search(&query_obj).unwrap_or_default();
+        st.results = st.service.search(&query_obj).unwrap_or_default().results;
     }
 
     let st = state.borrow();
@@ -302,7 +302,7 @@ fn test_search_multiple_results_ordered_by_score() {
 fn test_search_empty_query_returns_empty() {
     let (service, _tmp) = super::setup_test_service();
     let query_obj = glintindex_core::SearchQuery::new("");
-    let results = service.search(&query_obj).unwrap_or_default();
+    let results = service.search(&query_obj).unwrap_or_default().results;
     assert!(results.is_empty(), "Empty query should return no results");
 }
 
