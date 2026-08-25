@@ -125,6 +125,13 @@ max_file_size_mb = 50
 # If parsing exceeds this, the file is indexed metadata-only.
 # Default: 10
 parser_timeout_secs = 10
+
+[pagination]
+# Default number of search results returned per page
+default_page_size = 20
+
+# Maximum allowable limit per page
+max_page_size = 100
 "#
     )
 }

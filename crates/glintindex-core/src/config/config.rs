@@ -63,6 +63,9 @@ pub struct AppConfig {
     /// Indexing configuration.
     #[serde(default)]
     pub indexing: IndexingSettings,
+    /// Pagination configuration.
+    #[serde(default)]
+    pub pagination: PaginationSettings,
 }
 
 /// Returns the default font size for deserialization.
@@ -102,6 +105,16 @@ fn default_max_file_size_mb() -> u64 {
 /// Returns the default parser timeout in seconds for deserialization.
 fn default_parser_timeout_secs() -> u64 {
     10
+}
+
+/// Returns the default page size for deserialization.
+fn default_page_size() -> usize {
+    20
+}
+
+/// Returns the default max page size for deserialization.
+fn default_max_page_size() -> usize {
+    100
 }
 
 /// Logging configuration.
@@ -156,6 +169,27 @@ impl Default for IndexingSettings {
     }
 }
 
+/// Configuration settings for search result pagination.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct PaginationSettings {
+    /// Default number of results returned per page.
+    #[serde(default = "default_page_size")]
+    pub default_page_size: usize,
+
+    /// Maximum allowable limit per page (upper bound guard).
+    #[serde(default = "default_max_page_size")]
+    pub max_page_size: usize,
+}
+
+impl Default for PaginationSettings {
+    fn default() -> Self {
+        Self {
+            default_page_size: default_page_size(),
+            max_page_size: default_max_page_size(),
+        }
+    }
+}
+
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
@@ -170,6 +204,7 @@ impl Default for AppConfig {
             commit_interval: default_commit_interval(),
             logging: LoggingSettings::default(),
             indexing: IndexingSettings::default(),
+            pagination: PaginationSettings::default(),
         }
     }
 }
@@ -234,6 +269,8 @@ mod tests {
         assert_eq!(config.logging.max_retention_days, 7);
         assert_eq!(config.indexing.max_file_size_mb, 50);
         assert_eq!(config.indexing.parser_timeout_secs, 10);
+        assert_eq!(config.pagination.default_page_size, 20);
+        assert_eq!(config.pagination.max_page_size, 100);
     }
 
     #[test]
@@ -319,5 +356,47 @@ mod tests {
         let toml_str = toml::to_string(&config).unwrap();
         let restored: AppConfig = toml::from_str(&toml_str).unwrap();
         assert_eq!(config.recent_searches, restored.recent_searches);
+    }
+
+    #[test]
+    fn deserialize_missing_pagination_uses_defaults() {
+        let toml = r#"
+indexed_folders = []
+ignored_folders = []
+index_directory = "/tmp/test"
+theme = "system"
+max_preview_size = 200
+"#;
+        let config: AppConfig = toml::from_str(toml).unwrap();
+        assert_eq!(config.pagination.default_page_size, 20);
+        assert_eq!(config.pagination.max_page_size, 100);
+    }
+
+    #[test]
+    fn deserialize_custom_pagination() {
+        let toml = r#"
+indexed_folders = []
+ignored_folders = []
+index_directory = "/tmp/test"
+theme = "system"
+max_preview_size = 200
+
+[pagination]
+default_page_size = 50
+max_page_size = 200
+"#;
+        let config: AppConfig = toml::from_str(toml).unwrap();
+        assert_eq!(config.pagination.default_page_size, 50);
+        assert_eq!(config.pagination.max_page_size, 200);
+    }
+
+    #[test]
+    fn pagination_roundtrip_serde() {
+        let mut config = AppConfig::default();
+        config.pagination.default_page_size = 30;
+        config.pagination.max_page_size = 150;
+        let toml_str = toml::to_string(&config).unwrap();
+        let restored: AppConfig = toml::from_str(&toml_str).unwrap();
+        assert_eq!(config.pagination, restored.pagination);
     }
 }
