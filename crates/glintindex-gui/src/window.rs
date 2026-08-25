@@ -156,7 +156,25 @@ impl GlintIndexWindow {
                         // Load preview — use indexed text when available for consistency
                         // with search results, fall back to disk for edge cases
                         // (empty files indexed via watcher, corrupt stored fields).
-                        let output = if !st.results[index].document.content.is_empty() {
+                        // For metadata-only indexed files, show a placeholder.
+                        let output = if st.results[index].document.is_metadata_only {
+                            glintindex_core::PreviewOutput {
+                                path: path.clone(),
+                                lines: vec![glintindex_core::PreviewLine {
+                                    line_number: 1,
+                                    text:
+                                        "Preview unavailable — indexed by file name and path only"
+                                            .into(),
+                                    syntax_spans: vec![],
+                                    match_highlights: vec![],
+                                }],
+                                truncated: false,
+                                encoding: glintindex_core::Encoding::Utf8,
+                                is_binary: false,
+                                error: None,
+                                original_size: 0,
+                            }
+                        } else if !st.results[index].document.content.is_empty() {
                             st.preview_service.generate_preview(
                                 &st.results[index].document.content,
                                 &path,
