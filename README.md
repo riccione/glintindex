@@ -294,6 +294,14 @@ font_size = 12    # Range: 8-32
 [logging]
 level = "error"         # "off", "error", "warn", "info", "debug", "trace"
 max_retention_days = 7  # Auto-delete logs older than N days
+
+[indexing]
+max_file_size_mb = 50     # Skip text extraction for files larger than N MB
+parser_timeout_secs = 10  # Max time to parse a single document (seconds)
+
+[pagination]
+default_page_size = 20   # Default results per page
+max_page_size = 100      # Maximum allowable limit per page
 ```
 
 If no config file exists, defaults are used with the index stored at the platform-specific location (e.g., `~/.local/share/glintindex/index` on Linux).
