@@ -96,7 +96,47 @@ mod tests {
     fn parse_search_command() {
         let cli = Cli::try_parse_from(["glintindex-cli", "search", "invoice"]).unwrap();
         match cli.command {
-            Command::Search(args) => assert_eq!(args.query, "invoice"),
+            Command::Search(args) => {
+                assert_eq!(args.query, "invoice");
+                assert_eq!(args.page, 1);
+                assert!(args.limit.is_none());
+            }
+            _ => panic!("expected Search command"),
+        }
+    }
+
+    #[test]
+    fn parse_search_with_page_and_limit() {
+        let cli = Cli::try_parse_from([
+            "glintindex-cli",
+            "search",
+            "rust",
+            "--page",
+            "2",
+            "--limit",
+            "10",
+        ])
+        .unwrap();
+        match cli.command {
+            Command::Search(args) => {
+                assert_eq!(args.query, "rust");
+                assert_eq!(args.page, 2);
+                assert_eq!(args.limit, Some(10));
+            }
+            _ => panic!("expected Search command"),
+        }
+    }
+
+    #[test]
+    fn parse_search_with_short_flags() {
+        let cli = Cli::try_parse_from(["glintindex-cli", "search", "test", "-p", "3", "-l", "5"])
+            .unwrap();
+        match cli.command {
+            Command::Search(args) => {
+                assert_eq!(args.query, "test");
+                assert_eq!(args.page, 3);
+                assert_eq!(args.limit, Some(5));
+            }
             _ => panic!("expected Search command"),
         }
     }

@@ -198,6 +198,9 @@ glintindex-cli folders disable ~/Documents
 ```bash
 glintindex-cli search "function definition"
 glintindex-cli search "TODO fix"
+
+# With pagination
+glintindex-cli search "rust" --page 2 --limit 10
 ```
 
 ### View statistics
