@@ -8,7 +8,7 @@ GlintIndex crawls configured directories, parses text content from 27+ file type
 
 **Key features:**
 
-- Full-text search across local files
+- Full-text search with typo tolerance (fuzzy matching)
 - Supports source code, markup, config, and documentation files
 - Binary file detection (skips non-text content automatically)
 - Configurable folder indexing with ignore rules
