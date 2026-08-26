@@ -17,6 +17,40 @@ use crate::window::WindowState;
 /// Monotonically increasing query ID to discard stale search results.
 static NEXT_QUERY_ID: AtomicU64 = AtomicU64::new(1);
 
+/// Performs a search on a background thread and sends the result through `tx`.
+fn spawn_search(
+    index_handle: std::sync::Arc<std::sync::Mutex<glintindex_core::IndexService>>,
+    query: glintindex_core::SearchQuery,
+    tx: mpsc::Sender<(u64, glintindex_core::SearchResponse)>,
+    query_id: u64,
+) {
+    std::thread::spawn(move || {
+        use glintindex_core::traits::SearchEngine;
+        let result = {
+            let svc = index_handle.lock().map_err(|e| {
+                glintindex_core::GlintIndexError::Other(format!("lock poisoned: {e}"))
+            });
+            svc.and_then(|svc| svc.search(&query))
+        };
+        match result {
+            Ok(response) => {
+                let _ = tx.send((query_id, response));
+            }
+            Err(e) => {
+                tracing::warn!(
+                    target: "glintindex::gui",
+                    error = %e,
+                    "background search failed"
+                );
+                let _ = tx.send((
+                    query_id,
+                    glintindex_core::SearchResponse::new(Vec::new(), 0, 0, 0),
+                ));
+            }
+        }
+    });
+}
+
 /// Builds the toolbar containing the settings button, spacer, and search entry.
 pub fn build_toolbar(
     state: &Rc<RefCell<WindowState>>,
@@ -125,34 +159,12 @@ pub fn build_toolbar(
                     let query_text = query.clone();
                     let tx = tx_clone.clone();
 
-                    std::thread::spawn(move || {
-                        use glintindex_core::traits::SearchEngine;
-                        let query_obj = glintindex_core::SearchQuery::new(&query_text);
-                        let result = {
-                            let svc = index_handle.lock().map_err(|e| {
-                                glintindex_core::GlintIndexError::Other(format!(
-                                    "lock poisoned: {e}"
-                                ))
-                            });
-                            svc.and_then(|svc| svc.search(&query_obj))
-                        };
-                        match result {
-                            Ok(response) => {
-                                let _ = tx.send((query_id, response));
-                            }
-                            Err(e) => {
-                                tracing::warn!(
-                                    target: "glintindex::gui",
-                                    error = %e,
-                                    "background search failed"
-                                );
-                                let _ = tx.send((
-                                    query_id,
-                                    glintindex_core::SearchResponse::new(Vec::new(), 0, 0, 0),
-                                ));
-                            }
-                        }
-                    });
+                    spawn_search(
+                        index_handle,
+                        glintindex_core::SearchQuery::new(&query_text),
+                        tx,
+                        query_id,
+                    );
 
                     // Clear reference once fired
                     *debounce_ref.borrow_mut() = None;
@@ -184,28 +196,12 @@ pub fn build_toolbar(
             let query_text = query.clone();
             let tx = tx.clone();
 
-            std::thread::spawn(move || {
-                use glintindex_core::traits::SearchEngine;
-                let query_obj = glintindex_core::SearchQuery::new(&query_text);
-                let result = {
-                    let svc = index_handle.lock().map_err(|e| {
-                        glintindex_core::GlintIndexError::Other(format!("lock poisoned: {e}"))
-                    });
-                    svc.and_then(|svc| svc.search(&query_obj))
-                };
-                match result {
-                    Ok(response) => {
-                        let _ = tx.send((query_id, response));
-                    }
-                    Err(e) => {
-                        tracing::warn!(
-                            target: "glintindex::gui",
-                            error = %e,
-                            "background search failed"
-                        );
-                    }
-                }
-            });
+            spawn_search(
+                index_handle,
+                glintindex_core::SearchQuery::new(&query_text),
+                tx,
+                query_id,
+            );
         });
     }
 
