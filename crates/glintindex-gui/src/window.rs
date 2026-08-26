@@ -65,7 +65,6 @@ pub struct WindowState {
     /// Number of results per page.
     pub per_page: usize,
     /// Total number of search results across all pages.
-    #[allow(dead_code)]
     pub total_results: usize,
     /// Reference to the status bar label for live updates.
     pub status_label: Option<gtk::Label>,

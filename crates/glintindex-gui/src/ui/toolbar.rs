@@ -54,7 +54,6 @@ fn spawn_search(
 /// Performs a search using the current state and sends results through the channel.
 ///
 /// Used by pagination controls to trigger a search when the page changes.
-#[allow(dead_code)]
 pub fn perform_search_from_state(state: &Rc<RefCell<WindowState>>, query: &str) {
     if query.trim().is_empty() {
         return;
@@ -107,15 +106,13 @@ pub fn build_toolbar(
     // out-of-order results are discarded.
     let latest_applied_id = Rc::new(RefCell::new(0u64));
 
-    // Periodic poll: drain the mpsc receiver every 50ms on the
-    // GTK main loop and apply the newest result batch.
+    // ── Periodic poll: drain channel every 50ms on GTK main loop ──
     {
         let state_clone = state.clone();
         let listbox = results_listbox.clone();
         let rx = search_rx.clone();
         let latest_id = latest_applied_id.clone();
         gtk::glib::timeout_add_local(std::time::Duration::from_millis(50), move || {
-            // Drain all pending messages, keeping only the newest
             let mut newest: Option<(u64, glintindex_core::SearchResponse)> = None;
             while let Ok(msg) = rx.borrow().try_recv() {
                 match &newest {
@@ -128,15 +125,44 @@ pub fn build_toolbar(
                 if query_id >= *latest_id.borrow() {
                     *latest_id.borrow_mut() = query_id;
                     let mut st = state_clone.borrow_mut();
-                    st.results = response.results;
+
+                    // Extract fields before moving results into state
+                    let total = response.total;
+                    let offset = response.offset;
+                    let limit = response.limit;
+                    let results = response.results;
+
+                    // Preserve pagination metadata in state
+                    st.results = results;
+                    st.total_results = total;
+                    st.per_page = limit;
+                    st.total_pages = if limit == 0 || total == 0 {
+                        1
+                    } else {
+                        total.div_ceil(limit)
+                    };
+                    st.current_page = offset.checked_div(limit).map(|q| q + 1).unwrap_or(1);
                     st.selected_index = None;
+
                     let count = st.results.len();
-                    st.status = format!(
-                        "Found {} result{}",
-                        count,
-                        if count == 1 { "" } else { "s" }
-                    );
+                    let start = if st.total_results == 0 { 0 } else { offset + 1 };
+                    let end = (offset + count).min(st.total_results);
+                    st.status = if st.total_results == 0 {
+                        "No results found".to_string()
+                    } else {
+                        format!("Showing {}–{} of {} results", start, end, st.total_results)
+                    };
+
                     results::refresh_results_list(&listbox, &st.results);
+
+                    // Update integrated status bar (status text + pagination)
+                    super::status_bar::refresh_status_bar(
+                        &st,
+                        st.status_label.as_ref(),
+                        st.pagination_page_label.as_ref(),
+                        st.pagination_prev_btn.as_ref(),
+                        st.pagination_next_btn.as_ref(),
+                    );
                 }
             }
             gtk::glib::ControlFlow::Continue
@@ -159,6 +185,8 @@ pub fn build_toolbar(
             {
                 let mut st = state_clone.borrow_mut();
                 st.query = query.clone();
+                // Reset pagination when query text changes
+                st.current_page = 1;
             }
 
             // Cancel any pending debounce timeout
@@ -170,8 +198,18 @@ pub fn build_toolbar(
                 let mut st = state_clone.borrow_mut();
                 st.results.clear();
                 st.selected_index = None;
-                st.status = "Ready".to_string();
+                st.total_results = 0;
+                st.total_pages = 1;
+                st.current_page = 1;
+                st.status = "No results found".to_string();
                 results::refresh_results_list(&listbox, &st.results);
+                super::status_bar::refresh_status_bar(
+                    &st,
+                    st.status_label.as_ref(),
+                    st.pagination_page_label.as_ref(),
+                    st.pagination_prev_btn.as_ref(),
+                    st.pagination_next_btn.as_ref(),
+                );
                 return;
             }
 

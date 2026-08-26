@@ -119,7 +119,6 @@ pub fn build(state: &Rc<RefCell<WindowState>>) -> StatusBarWidgets {
 ///
 /// Call this from the GTK main thread after updating `WindowState` fields.
 /// All widget references are optional so callers can guard on first paint.
-#[allow(dead_code)]
 pub fn refresh_status_bar(
     state: &WindowState,
     status_label: Option<&Label>,
