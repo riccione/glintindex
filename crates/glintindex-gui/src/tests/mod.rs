@@ -70,6 +70,15 @@ commit_interval = 500
         preview_buffer: None,
         last_job_progress: None,
         theme_manager: crate::theme::ThemeManager::new(theme, font_size),
+        current_page: 1,
+        total_pages: 1,
+        per_page: 20,
+        total_results: 0,
+        status_label: None,
+        pagination_page_label: None,
+        pagination_prev_btn: None,
+        pagination_next_btn: None,
+        search_tx: None,
     };
 
     (state, tmp)

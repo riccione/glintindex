@@ -51,10 +51,47 @@ fn spawn_search(
     });
 }
 
+/// Performs a search using the current state and sends results through the channel.
+///
+/// Used by pagination controls to trigger a search when the page changes.
+#[allow(dead_code)]
+pub fn perform_search_from_state(state: &Rc<RefCell<WindowState>>, query: &str) {
+    if query.trim().is_empty() {
+        return;
+    }
+
+    let (index_handle, per_page, current_page, tx) = {
+        let st = state.borrow();
+        let tx = st.search_tx.clone();
+        (
+            st.service.index_service_handle(),
+            st.per_page,
+            st.current_page,
+            tx,
+        )
+    };
+
+    let tx = match tx {
+        Some(tx) => tx,
+        None => {
+            tracing::warn!("search_tx not initialized in WindowState");
+            return;
+        }
+    };
+
+    let query_id = NEXT_QUERY_ID.fetch_add(1, Ordering::SeqCst);
+    let search_query = glintindex_core::SearchQuery::paged(query, current_page, per_page);
+
+    spawn_search(index_handle, search_query, tx, query_id);
+}
+
 /// Builds the toolbar containing the settings button, spacer, and search entry.
+///
+/// `search_rx` is the receiving end of the search channel created by the caller.
 pub fn build_toolbar(
     state: &Rc<RefCell<WindowState>>,
     results_listbox: &ListBox,
+    search_rx: mpsc::Receiver<(u64, glintindex_core::SearchResponse)>,
 ) -> (GtkBox, Button) {
     let settings_btn = Button::builder().label("Settings").build();
 
@@ -64,10 +101,7 @@ pub fn build_toolbar(
         .build();
 
     // ── Background search channel ──────────────────────────────
-    // Results are sent from a background thread via mpsc and
-    // drained on the GTK main loop by a periodic poll timer.
-    let (tx, rx) = mpsc::channel::<(u64, glintindex_core::SearchResponse)>();
-    let rx = Rc::new(RefCell::new(rx));
+    let search_rx = Rc::new(RefCell::new(search_rx));
 
     // Track the latest query ID applied to the UI so stale
     // out-of-order results are discarded.
@@ -78,7 +112,7 @@ pub fn build_toolbar(
     {
         let state_clone = state.clone();
         let listbox = results_listbox.clone();
-        let rx = rx.clone();
+        let rx = search_rx.clone();
         let latest_id = latest_applied_id.clone();
         gtk::glib::timeout_add_local(std::time::Duration::from_millis(50), move || {
             // Drain all pending messages, keeping only the newest
@@ -116,7 +150,6 @@ pub fn build_toolbar(
     {
         let state_clone = state.clone();
         let listbox = results_listbox.clone();
-        let tx = tx.clone();
         let debounce = debounce_id.clone();
 
         search_entry.connect_changed(move |entry| {
@@ -144,27 +177,28 @@ pub fn build_toolbar(
 
             // Spawn a 150ms debounce timeout, then kick off the
             // actual search on a background thread.
-            let tx_clone = tx.clone();
             let state_for_spawn = state_clone.clone();
             let debounce_ref = debounce.clone();
 
             let source_id =
                 gtk::glib::timeout_add_local(std::time::Duration::from_millis(150), move || {
-                    let index_handle = {
+                    let (index_handle, per_page, current_page, tx) = {
                         let st = state_for_spawn.borrow();
-                        st.service.index_service_handle()
+                        let tx = st.search_tx.clone();
+                        (
+                            st.service.index_service_handle(),
+                            st.per_page,
+                            st.current_page,
+                            tx,
+                        )
                     };
 
-                    let query_id = NEXT_QUERY_ID.fetch_add(1, Ordering::SeqCst);
-                    let query_text = query.clone();
-                    let tx = tx_clone.clone();
-
-                    spawn_search(
-                        index_handle,
-                        glintindex_core::SearchQuery::new(&query_text),
-                        tx,
-                        query_id,
-                    );
+                    if let Some(tx) = tx {
+                        let query_id = NEXT_QUERY_ID.fetch_add(1, Ordering::SeqCst);
+                        let query =
+                            glintindex_core::SearchQuery::paged(&query, current_page, per_page);
+                        spawn_search(index_handle, query, tx, query_id);
+                    }
 
                     // Clear reference once fired
                     *debounce_ref.borrow_mut() = None;
@@ -179,7 +213,6 @@ pub fn build_toolbar(
     // ── connect_activate (Enter key) ───────────────────────────
     {
         let state_clone = state.clone();
-        let tx = tx.clone();
 
         search_entry.connect_activate(move |entry| {
             let query = entry.text().to_string();
@@ -187,21 +220,22 @@ pub fn build_toolbar(
                 return;
             }
 
-            let index_handle = {
+            let (index_handle, per_page, current_page, tx) = {
                 let st = state_clone.borrow();
-                st.service.index_service_handle()
+                let tx = st.search_tx.clone();
+                (
+                    st.service.index_service_handle(),
+                    st.per_page,
+                    st.current_page,
+                    tx,
+                )
             };
 
-            let query_id = NEXT_QUERY_ID.fetch_add(1, Ordering::SeqCst);
-            let query_text = query.clone();
-            let tx = tx.clone();
-
-            spawn_search(
-                index_handle,
-                glintindex_core::SearchQuery::new(&query_text),
-                tx,
-                query_id,
-            );
+            if let Some(tx) = tx {
+                let query_id = NEXT_QUERY_ID.fetch_add(1, Ordering::SeqCst);
+                let query = glintindex_core::SearchQuery::paged(&query, current_page, per_page);
+                spawn_search(index_handle, query, tx, query_id);
+            }
         });
     }
 
