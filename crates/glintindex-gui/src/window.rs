@@ -59,10 +59,8 @@ pub struct WindowState {
     /// Centralized theme manager for CSS loading and application.
     pub theme_manager: ThemeManager,
     /// Current page number (1-based).
-    #[allow(dead_code)]
     pub current_page: usize,
     /// Total number of pages.
-    #[allow(dead_code)]
     pub total_pages: usize,
     /// Number of results per page.
     pub per_page: usize,
@@ -70,16 +68,12 @@ pub struct WindowState {
     #[allow(dead_code)]
     pub total_results: usize,
     /// Reference to the status bar label for live updates.
-    #[allow(dead_code)]
     pub status_label: Option<gtk::Label>,
     /// Reference to the pagination page label.
-    #[allow(dead_code)]
     pub pagination_page_label: Option<gtk::Label>,
     /// Reference to the previous page button.
-    #[allow(dead_code)]
     pub pagination_prev_btn: Option<gtk::Button>,
     /// Reference to the next page button.
-    #[allow(dead_code)]
     pub pagination_next_btn: Option<gtk::Button>,
     /// Sender for background search requests.
     pub search_tx: Option<mpsc::Sender<(u64, glintindex_core::SearchResponse)>>,
@@ -242,8 +236,17 @@ impl GlintIndexWindow {
             });
         }
 
-        // Status bar
-        let status_bar = ui::status_bar::build(&state);
+        // Status bar (integrated with pagination controls)
+        let status_bar_widgets = ui::status_bar::build(&state);
+
+        // Store widget references in state for reactive updates
+        {
+            let mut st = state.borrow_mut();
+            st.status_label = Some(status_bar_widgets.status_label);
+            st.pagination_page_label = Some(status_bar_widgets.page_label);
+            st.pagination_prev_btn = Some(status_bar_widgets.prev_btn);
+            st.pagination_next_btn = Some(status_bar_widgets.next_btn);
+        }
 
         // Scrolled windows for results and preview
         let results_scroll = ScrolledWindow::builder()
@@ -299,10 +302,10 @@ impl GlintIndexWindow {
             .build();
 
         // Main vertical layout (toolbar + paned + status bar)
-        let main_content = GtkBox::new(Orientation::Vertical, 4);
+        let main_content = GtkBox::new(Orientation::Vertical, 0);
         main_content.prepend(&toolbar);
         main_content.append(&paned);
-        main_content.append(&status_bar);
+        main_content.append(&status_bar_widgets.container);
 
         // Empty state (shown when no indexed folders configured)
         let empty_state = ui::empty_state::build(&state, &window, view_stack.clone());
