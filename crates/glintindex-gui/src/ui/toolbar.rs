@@ -126,6 +126,15 @@ pub fn build_toolbar(
                     *latest_id.borrow_mut() = query_id;
                     let mut st = state_clone.borrow_mut();
 
+                    // Discard stale results from a search that was dispatched
+                    // before the user cleared the input.  The background thread
+                    // received a non-empty query, but the user has since cleared
+                    // the search entry — applying these results would incorrectly
+                    // repopulate the result list.
+                    if st.query.trim().is_empty() {
+                        return gtk::glib::ControlFlow::Continue;
+                    }
+
                     // Extract fields before moving results into state
                     let total = response.total;
                     let offset = response.offset;
