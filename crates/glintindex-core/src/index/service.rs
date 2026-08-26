@@ -267,14 +267,20 @@ impl IndexService {
         // Build prefix queries for tokens >= 3 characters.
         let prefix_query = self.build_prefix_query(&query.query);
 
-        // Combine standard and prefix queries
-        let combined_query: Box<dyn tantivy::query::Query> = if let Some(prefix_q) = prefix_query {
-            Box::new(BooleanQuery::new(vec![
-                (Occur::Should, standard_query),
-                (Occur::Should, prefix_q),
-            ]))
-        } else {
-            standard_query
+        // Build fuzzy queries for typo-tolerant matching.
+        let fuzzy_query = self.build_fuzzy_query(&query.query);
+
+        // Combine standard, prefix, and fuzzy queries
+        let combined_query: Box<dyn tantivy::query::Query> = {
+            let mut sub_queries: Vec<(Occur, Box<dyn tantivy::query::Query>)> = Vec::new();
+            sub_queries.push((Occur::Should, standard_query));
+            if let Some(prefix_q) = prefix_query {
+                sub_queries.push((Occur::Should, prefix_q));
+            }
+            if let Some(fuzzy_q) = fuzzy_query {
+                sub_queries.push((Occur::Should, fuzzy_q));
+            }
+            Box::new(BooleanQuery::new(sub_queries))
         };
 
         // Single-pass search: fetch total count + top docs in one Tantivy execution.
@@ -317,37 +323,64 @@ impl IndexService {
     ///
     /// For each token in the query that is at least 3 characters long
     /// (after normalization), creates a prefix query using
-    /// `FuzzyTermQuery::new_prefix` with distance 0. This performs
-    /// an exact prefix match against the inverted index's FST.
+    /// `FuzzyTermQuery::new_prefix` with distance 1. This performs
+    /// a typo-tolerant prefix match against the inverted index's FST.
     ///
     /// Tokens shorter than 3 characters only get exact-match queries
     /// to avoid overly broad results.
     fn build_prefix_query(&self, query: &str) -> Option<Box<dyn tantivy::query::Query>> {
         let mut sub_queries: Vec<(Occur, Box<dyn tantivy::query::Query>)> = Vec::new();
 
-        // Extract terms from the query for prefix matching.
-        // Tokens shorter than 3 characters only get exact-match queries
-        // to avoid overly broad results. Tokens >= 3 characters also
-        // get prefix queries using FuzzyTermQuery::new_prefix with
-        // distance=0, which creates an exact prefix DFA that efficiently
-        // scans the inverted index's term dictionary.
         for term_str in query.split_whitespace() {
             let normalized = term_str.to_lowercase();
             if normalized.len() < 3 {
-                continue; // Skip tokens shorter than 3 characters
+                continue;
             }
 
-            // Create prefix queries for both filename and content fields
             let filename_term = Term::from_field_text(self.fields.filename, &normalized);
             let content_term = Term::from_field_text(self.fields.content, &normalized);
 
-            // FuzzyTermQuery with distance=0 and prefix=true creates an exact prefix DFA
-            // that efficiently scans the inverted index's term dictionary.
-            let filename_prefix = FuzzyTermQuery::new_prefix(filename_term, 0, false);
-            let content_prefix = FuzzyTermQuery::new_prefix(content_term, 0, false);
+            let filename_prefix = FuzzyTermQuery::new_prefix(filename_term, 1, true);
+            let content_prefix = FuzzyTermQuery::new_prefix(content_term, 1, true);
 
             sub_queries.push((Occur::Should, Box::new(filename_prefix)));
             sub_queries.push((Occur::Should, Box::new(content_prefix)));
+        }
+
+        if sub_queries.is_empty() {
+            None
+        } else {
+            Some(Box::new(BooleanQuery::new(sub_queries)))
+        }
+    }
+
+    /// Builds fuzzy queries for search tokens with length >= 3.
+    ///
+    /// For each token, creates a full-term fuzzy match using
+    /// `FuzzyTermQuery` with Damerau-Levenshtein distance 1.
+    /// This catches single-character typos (e.g. "progamming" → "programming").
+    ///
+    /// Tokens shorter than 3 characters are skipped to avoid overly broad results.
+    fn build_fuzzy_query(&self, query: &str) -> Option<Box<dyn tantivy::query::Query>> {
+        let mut sub_queries: Vec<(Occur, Box<dyn tantivy::query::Query>)> = Vec::new();
+
+        for term_str in query.split_whitespace() {
+            let normalized = term_str.to_lowercase();
+            if normalized.len() < 3 {
+                continue;
+            }
+
+            let filename_term = Term::from_field_text(self.fields.filename, &normalized);
+            let content_term = Term::from_field_text(self.fields.content, &normalized);
+
+            sub_queries.push((
+                Occur::Should,
+                Box::new(FuzzyTermQuery::new(filename_term, 1, true)),
+            ));
+            sub_queries.push((
+                Occur::Should,
+                Box::new(FuzzyTermQuery::new(content_term, 1, true)),
+            ));
         }
 
         if sub_queries.is_empty() {
@@ -774,5 +807,87 @@ mod tests {
         // Two chars should only do exact search, not prefix
         let response = service.search(&SearchQuery::new("he")).unwrap();
         assert!(response.is_empty()); // "he" doesn't match "hello" exactly
+    }
+
+    #[test]
+    fn fuzzy_search_finds_typo_in_content() {
+        let (service, _tmp) = temp_index_service();
+        let doc = sample_document("main.rs", "programming is fun");
+        service.add_document(&doc).unwrap();
+        service.commit().unwrap();
+
+        // "progamming" (missing 'r') should find "programming"
+        let response = service.search(&SearchQuery::new("progamming")).unwrap();
+        assert_eq!(response.results.len(), 1);
+    }
+
+    #[test]
+    fn fuzzy_search_finds_typo_in_filename() {
+        let (service, _tmp) = temp_index_service();
+        let doc = sample_document("programming.txt", "content");
+        service.add_document(&doc).unwrap();
+        service.commit().unwrap();
+
+        // "progamming" should match filename "programming.txt"
+        let response = service.search(&SearchQuery::new("progamming")).unwrap();
+        assert_eq!(response.results.len(), 1);
+        assert_eq!(response.results[0].document.filename(), "programming.txt");
+    }
+
+    #[test]
+    fn fuzzy_search_distance_2_returns_empty() {
+        let (service, _tmp) = temp_index_service();
+        let doc = sample_document("main.rs", "programming is fun");
+        service.add_document(&doc).unwrap();
+        service.commit().unwrap();
+
+        // "progammming" (two extra 'm's) is distance 2 — should not match
+        let response = service.search(&SearchQuery::new("progammming")).unwrap();
+        assert!(response.is_empty());
+    }
+
+    #[test]
+    fn fuzzy_prefix_finds_typo() {
+        let (service, _tmp) = temp_index_service();
+        let doc = sample_document("config.toml", "settings configuration");
+        service.add_document(&doc).unwrap();
+        service.commit().unwrap();
+
+        // "setings" (missing 't') should prefix-match "settings"
+        let response = service.search(&SearchQuery::new("setings")).unwrap();
+        assert!(!response.results.is_empty());
+    }
+
+    #[test]
+    fn fuzzy_search_short_tokens_skipped() {
+        let (service, _tmp) = temp_index_service();
+        let doc = sample_document("a.txt", "a b c");
+        service.add_document(&doc).unwrap();
+        service.commit().unwrap();
+
+        // "ab" is < 3 chars — should not trigger fuzzy, just exact
+        let response = service.search(&SearchQuery::new("ab")).unwrap();
+        assert!(response.is_empty());
+    }
+
+    #[test]
+    fn fuzzy_search_empty_index() {
+        let (service, _tmp) = temp_index_service();
+        let response = service.search(&SearchQuery::new("programming")).unwrap();
+        assert!(response.is_empty());
+    }
+
+    #[test]
+    fn fuzzy_and_exact_results_combined() {
+        let (service, _tmp) = temp_index_service();
+        let doc1 = sample_document("exact.txt", "exact match");
+        let doc2 = sample_document("fuzzy.txt", "programming here");
+        service.add_document(&doc1).unwrap();
+        service.add_document(&doc2).unwrap();
+        service.commit().unwrap();
+
+        // "progamming" should find "programming" via fuzzy
+        let response = service.search(&SearchQuery::new("progamming")).unwrap();
+        assert!(!response.results.is_empty());
     }
 }
