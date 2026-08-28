@@ -1,30 +1,84 @@
-## [0.3.0] - 2026-07-29
+## [0.4.0] - 2026-08-28
 
 ### Bug Fixes
 
 - *(gui)* Show error message when start_indexing fails on Welcome screen (#52)
 - *(gui)* Fix borrow conflict in settings progress polling and auto-start on reopen (#53)
+- *(core)* Add RemoveLongFilter to Tantivy tokenizer
+- *(gui)* Offload search to background thread with debouncing
+- *(index)* Auto-recreate index on schema mismatch
+- *(gui)* Discard stale search results when input is cleared #67
+
+### Documentation
+
+- Add fuzz testing section to README
+- Update README for logging redesign
+- Add [pagination] section to config template and README
+- Add pagination example to README search section
+- Update README to mention typo-tolerant search
 
 ### Features
 
 - *(index)* Add configurable incremental commits (#50)
 - *(gui)* Async indexing with progress on Welcome screen (#51)
+- *(core)* Expose index_service_handle for background search
+- *(config)* Add LoggingSettings to AppConfig
+- *(logging)* Implement daily rotation and startup log pruning
+- *(logging)* Wire config-based log level in CLI and GUI
+- *(config)* Add IndexingSettings with file size and parser timeout limits
+- *(model)* Add is_metadata_only field to Document
+- *(index)* Add is_metadata_only to Tantivy schema and mapper
+- *(scanner)* Metadata-only fallback for failed file processing
+- *(core)* Wire indexing config to scanner
+- *(gui)* Show placeholder for metadata-only indexed files
+- *(config)* Add PaginationSettings with page size and max limit
+- *(model)* Add SearchResponse struct with pagination metadata
+- *(model)* Add offset and limit fields to SearchQuery
+- *(cli)* Add pagination flags and paginated search output
+- *(gui)* Add pagination state and search channel to `WindowState`
+- *(gui)* Rebuild status bar with integrated pagination controls
+- *(gui)* Wire pagination into toolbar search flow
+- *(core)* Add fuzzy search with typo-tolerant prefix matching
 
 ### Miscellaneous Tasks
 
-- Bump version to v0.3.0 for release
+- Bump version to v0.3.0 for release (#55)
+- Fix GTK CI failures using xvfb and single-threaded tests
+- Remove unused rayon workspace dependency
+- Add fuzz workspace and exclude from main workspace
+- Exclude fuzz artifacts from git
+- *(ci)* Pin github actions to full commit SHAs
 
 ### Other
 
 - *(core)* Add criterion benchmark suite for baseline performance (#48)
+- Add rust-toolchain.toml
 
 ### Performance
 
 - *(index)* Batch SQLite metadata writes in single transaction (#54)
+- *(search)* Combine Count and TopDocs into single-pass tuple collector
 
 ### Refactor
 
 - *(scanner)* Remove double directory traversal for single-pass scanning (#49)
+- Downgrade noisy per-file tracing calls to debug
+- *(search)* Update SearchEngine trait to return SearchResponse
+- *(search)* Propagate SearchResponse through service and scanner layers
+- *(gui)* Extract `spawn_search` helper in toolbar
+
+### Styling
+
+- *(gui)* Apply rustfmt to test helpers
+
+### Testing
+
+- *(gui)* Make internal APIs accessible for tests
+- *(gui)* Add integration tests for settings, search, preview, themes
+- *(fuzz)* Add fuzz targets for all 7 document parsers
+- *(fuzz)* Seed corpus from bench_data and scanner tests
+- Use unique temp index directories in GUI tests
+- *(cli)* Add tests for search pagination flags
 ## [0.2.0] - 2026-07-19
 
 ### Bug Fixes
