@@ -87,6 +87,7 @@ impl GlintIndexWindow {
         let theme = service.config().theme;
         let font_size = service.config().clamped_font_size();
         let per_page = service.config().pagination.default_page_size;
+        let preview_context_lines = service.config().clamped_preview_context_lines();
 
         let statistics = service.statistics().ok();
 
@@ -94,7 +95,10 @@ impl GlintIndexWindow {
         let (search_tx, search_rx) = mpsc::channel::<(u64, glintindex_core::SearchResponse)>();
 
         let state = Rc::new(RefCell::new(WindowState {
-            preview_service: PreviewService::with_default_config(),
+            preview_service: PreviewService::new(glintindex_core::PreviewConfig {
+                context_lines: preview_context_lines,
+                ..Default::default()
+            }),
             service,
             query: String::new(),
             results: Vec::new(),

@@ -258,7 +258,7 @@ glintindex
 ### Features
 
 - **Live search**: Results update as you type
-- **File preview**: Syntax-highlighted preview with line numbers
+- **File preview**: Syntax-highlighted preview with line numbers; search results show only the matching lines plus a configurable number of context lines above and below
 - **File actions**: Open files, reveal in file manager, copy file path
 - **Settings**: Configure theme (light/dark/system), font size, indexed folders, and ignored folders
 - **Index management**: Index all folders, rebuild index, or clear index from the GUI
@@ -293,6 +293,8 @@ ignored_folders = [".git", ".svn", ".hg", "node_modules", "__pycache__", ".DS_St
 index_directory = "/home/user/.local/share/glintindex/index"
 
 max_preview_size = 200
+
+preview_context_lines = 3  # Context lines around each search match in previews
 
 theme = "system"  # Options: "light", "dark", "system"
 font_size = 12    # Range: 8-32

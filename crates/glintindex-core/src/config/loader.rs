@@ -97,6 +97,11 @@ index_directory = "{index_dir}"
 # Maximum number of characters in a preview snippet.
 max_preview_size = 200
 
+# Context lines shown above and below each search match in previews.
+# When the query is empty, the leading lines of the file are shown instead.
+# Default: 3
+preview_context_lines = 3
+
 # Visual theme preference: light, dark, or system.
 theme = "system"
 
