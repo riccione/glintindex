@@ -111,6 +111,24 @@ pub fn build(state: &Rc<RefCell<WindowState>>) -> GtkBox {
                 if st.last_job_progress.is_none() {
                     st.last_job_progress = st.service.current_progress();
                 }
+                if st.progress_active {
+                    // A tracked job finished while no poller was running —
+                    // clear the stale flag and adopt the final status.
+                    st.progress_active = false;
+                    match st.service.job_status().map(|s| s.state) {
+                        Some(glintindex_core::tasks::JobState::Failed(msg)) => {
+                            st.status = format!("Indexing failed: {msg}");
+                        }
+                        _ => {
+                            if st.last_job_progress.is_some() {
+                                st.status = "Indexing completed".to_string();
+                            }
+                        }
+                    }
+                    if let Some(ref label) = st.status_label {
+                        label.set_text(&st.status);
+                    }
+                }
                 st.refresh_statistics();
             }
         }
@@ -247,6 +265,9 @@ fn schedule_progress_polling(
             let mut st = state_clone.borrow_mut();
             if let Some(progress) = st.service.current_progress() {
                 st.status = progress.status_message.clone();
+                if let Some(ref label) = st.status_label {
+                    label.set_text(&st.status);
+                }
                 progress_clone.pulse();
                 progress_clone.set_text(Some(&format!(
                     "Processed: {} files",
@@ -260,6 +281,10 @@ fn schedule_progress_polling(
                 }
                 st.progress_active = false;
                 st.refresh_statistics();
+                st.status = "Indexing completed".to_string();
+                if let Some(ref label) = st.status_label {
+                    label.set_text(&st.status);
+                }
                 progress_clone.set_visible(false);
                 progress_clone.set_fraction(0.0);
             }
