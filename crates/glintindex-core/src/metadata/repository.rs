@@ -161,6 +161,35 @@ impl Repository {
         Ok(count > 0)
     }
 
+    /// Returns all tracked file paths located under the given root directory.
+    ///
+    /// The match is boundary-aware: a root of `/a/b` matches
+    /// `/a/b/file.txt` but never `/a/bc/file.txt`.
+    pub fn list_paths_under(&self, root: &Path) -> Result<Vec<String>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT path FROM files")
+            .map_err(|e| GlintIndexError::Metadata(format!("prepare failed: {e}")))?;
+
+        let paths: Vec<String> = stmt
+            .query_map([], |row| row.get(0))
+            .map_err(|e| GlintIndexError::Metadata(format!("query failed: {e}")))?
+            .collect::<std::result::Result<_, _>>()
+            .map_err(|e| GlintIndexError::Metadata(format!("query failed: {e}")))?;
+
+        let root_str = root.to_string_lossy();
+        let prefix = if root_str.ends_with(std::path::MAIN_SEPARATOR) {
+            root_str.to_string()
+        } else {
+            format!("{root_str}{}", std::path::MAIN_SEPARATOR)
+        };
+
+        Ok(paths
+            .into_iter()
+            .filter(|p| p.starts_with(&prefix))
+            .collect())
+    }
+
     /// Returns the total number of files tracked in the metadata database.
     pub fn count(&self) -> Result<i64> {
         let count: i64 = self
@@ -303,5 +332,36 @@ mod tests {
 
         repo.clear().unwrap();
         assert_eq!(repo.count().unwrap(), 0);
+    }
+
+    #[test]
+    fn list_paths_under_returns_files_in_root() {
+        let (repo, _tmp) = setup_repo();
+        repo.upsert(&sample_metadata("/docs/a.txt")).unwrap();
+        repo.upsert(&sample_metadata("/docs/sub/b.txt")).unwrap();
+        repo.upsert(&sample_metadata("/other/c.txt")).unwrap();
+
+        let mut paths = repo.list_paths_under(Path::new("/docs")).unwrap();
+        paths.sort();
+        assert_eq!(paths, vec!["/docs/a.txt", "/docs/sub/b.txt"]);
+    }
+
+    #[test]
+    fn list_paths_under_respects_path_boundary() {
+        let (repo, _tmp) = setup_repo();
+        repo.upsert(&sample_metadata("/docs/file.txt")).unwrap();
+        repo.upsert(&sample_metadata("/docs2/file.txt")).unwrap();
+
+        let paths = repo.list_paths_under(Path::new("/docs")).unwrap();
+        assert_eq!(paths, vec!["/docs/file.txt"]);
+    }
+
+    #[test]
+    fn list_paths_under_empty_root() {
+        let (repo, _tmp) = setup_repo();
+        repo.upsert(&sample_metadata("/docs/a.txt")).unwrap();
+
+        let paths = repo.list_paths_under(Path::new("/nonexistent")).unwrap();
+        assert!(paths.is_empty());
     }
 }

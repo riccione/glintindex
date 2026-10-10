@@ -27,6 +27,10 @@ pub enum Command {
     /// When using --folder, the folder is automatically added to the
     /// configuration for future indexing.
     ///
+    /// Unchanged files are skipped. Files that were modified are
+    /// re-indexed, and index entries for files that no longer exist
+    /// on disk are removed.
+    ///
     /// # Examples
     ///
     ///   glintindex index

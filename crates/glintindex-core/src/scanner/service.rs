@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
@@ -122,12 +123,18 @@ impl<'a> FilesystemScanner<'a> {
     /// Errors on individual files are recovered from — one bad file does not
     /// stop the scan.
     ///
+    /// After the walk, index entries for tracked files that no longer exist
+    /// under the scanned directory are removed (deleted-file reconciliation).
+    /// Reconciliation is skipped if the root directory cannot be read, so a
+    /// transient I/O failure never wipes the index.
+    ///
     /// # Errors
     ///
     /// Returns an error only if the root directory cannot be read.
     pub fn scan_directory(&self, directory: &Path) -> Result<ScannerStatistics> {
         let mut stats = ScannerStatistics::new();
         let mut docs_since_commit = 0usize;
+        let mut seen_paths: HashSet<String> = HashSet::new();
         let ignore_rules = self.ignore_rules.clone();
 
         self.reporter
@@ -167,6 +174,10 @@ impl<'a> FilesystemScanner<'a> {
             let path = entry.path();
             stats.inc_files_discovered();
             self.reporter.on_file_discovered(path);
+
+            // Record presence before any skip/read paths so files that
+            // exist on disk are never treated as deleted.
+            seen_paths.insert(path.to_string_lossy().into_owned());
 
             if !IgnoreRules::is_supported_file(path) {
                 stats.inc_files_skipped();
@@ -283,6 +294,13 @@ impl<'a> FilesystemScanner<'a> {
             stats.inc_commits();
         }
 
+        // Remove index entries for tracked files that no longer exist
+        let removed = self.reconcile_deletions(directory, &seen_paths, &mut stats);
+        if removed > 0 {
+            self.index_service.commit()?;
+            stats.inc_commits();
+        }
+
         self.reporter.on_operation_completed();
         Ok(stats)
     }
@@ -295,6 +313,75 @@ impl<'a> FilesystemScanner<'a> {
             combined.merge(&stats);
         }
         Ok(combined)
+    }
+
+    /// Removes index and metadata entries for tracked files under `root`
+    /// that were not seen during the scan.
+    ///
+    /// Returns the number of documents removed. Reconciliation is skipped
+    /// entirely when the root directory is not readable, so a transient
+    /// I/O failure (e.g. unmounted drive) never wipes the index.
+    fn reconcile_deletions(
+        &self,
+        root: &Path,
+        seen_paths: &HashSet<String>,
+        stats: &mut ScannerStatistics,
+    ) -> u64 {
+        if !root.is_dir() {
+            tracing::warn!(
+                target: "glintindex::scanner",
+                path = %root.display(),
+                "root directory not readable, skipping deleted-file reconciliation"
+            );
+            return 0;
+        }
+
+        let Some(repo) = self.index_service.metadata() else {
+            return 0;
+        };
+
+        // Collect missing paths first — `remove_document` locks the same
+        // repository, so the guard must be dropped before deleting.
+        let missing: Vec<String> = match repo.lock() {
+            Ok(guard) => match guard.list_paths_under(root) {
+                Ok(paths) => paths
+                    .into_iter()
+                    .filter(|p| !seen_paths.contains(p.as_str()))
+                    .collect(),
+                Err(err) => {
+                    tracing::debug!(
+                        target: "glintindex::scanner",
+                        error = %err,
+                        "failed to list tracked paths, skipping reconciliation"
+                    );
+                    return 0;
+                }
+            },
+            Err(_) => return 0,
+        };
+
+        let mut removed = 0u64;
+        for path_str in missing {
+            let path = Path::new(&path_str);
+            if let Err(err) = self.index_service.remove_document(path) {
+                tracing::debug!(
+                    target: "glintindex::scanner",
+                    path = %path.display(),
+                    error = %err,
+                    "failed to remove deleted document from index"
+                );
+                continue;
+            }
+            tracing::debug!(
+                target: "glintindex::scanner",
+                path = %path.display(),
+                "removed deleted file from index"
+            );
+            removed += 1;
+            stats.inc_files_removed();
+            self.reporter.on_file_removed(path);
+        }
+        removed
     }
 
     fn process_file(&self, path: &Path) -> Result<Document> {
@@ -976,5 +1063,131 @@ mod tests {
         let scanner = FilesystemScanner::new(&service);
         // Default commit_interval is 0 (no incremental commits)
         assert_eq!(scanner.commit_interval, 0);
+    }
+
+    // ── Deleted-file reconciliation tests ────────────────────────
+
+    #[test]
+    fn deleted_file_is_removed_on_rescan() {
+        use crate::model::SearchQuery;
+        use crate::traits::SearchEngine;
+
+        let (tmp, root) = setup_test_dir();
+        fs::write(root.join("a.txt"), "hello apple").unwrap();
+        fs::write(root.join("b.txt"), "world blueberry").unwrap();
+
+        let service = create_index_service(&tmp);
+        let scanner = FilesystemScanner::new(&service);
+        scanner.scan_directory(&root).unwrap();
+
+        // Both files searchable before deletion
+        let response = service.search(&SearchQuery::new("blueberry")).unwrap();
+        assert_eq!(response.results.len(), 1);
+
+        // Delete b.txt and rescan
+        fs::remove_file(root.join("b.txt")).unwrap();
+        let stats = scanner.scan_directory(&root).unwrap();
+
+        assert_eq!(stats.files_removed, 1);
+        assert_eq!(stats.files_unchanged, 1); // a.txt still skipped as unchanged
+        assert_eq!(stats.files_indexed, 0);
+
+        // b.txt's metadata row is gone, a.txt's remains
+        let repo = service.metadata().unwrap();
+        let guard = repo.lock().unwrap();
+        let b_path = root.join("b.txt").to_string_lossy().to_string();
+        let a_path = root.join("a.txt").to_string_lossy().to_string();
+        assert!(!guard.exists(&b_path).unwrap());
+        assert!(guard.exists(&a_path).unwrap());
+        drop(guard);
+
+        // Deleted content is no longer searchable
+        let response = service.search(&SearchQuery::new("blueberry")).unwrap();
+        assert!(
+            response.results.is_empty(),
+            "deleted file should no longer be searchable"
+        );
+    }
+
+    #[test]
+    fn files_under_other_roots_are_not_removed() {
+        let (tmp, root_a) = setup_test_dir();
+        let root_b = tmp.path().join("other");
+        fs::create_dir(&root_b).unwrap();
+        fs::write(root_a.join("a.txt"), "alpha").unwrap();
+        fs::write(root_b.join("b.txt"), "beta").unwrap();
+
+        let service = create_index_service(&tmp);
+        let scanner = FilesystemScanner::new(&service);
+        scanner.scan_directory(&root_a).unwrap();
+        scanner.scan_directory(&root_b).unwrap();
+
+        // Delete b.txt but only rescan root_a — root_b must be untouched
+        fs::remove_file(root_b.join("b.txt")).unwrap();
+        let stats = scanner.scan_directory(&root_a).unwrap();
+        assert_eq!(stats.files_removed, 0);
+
+        let repo = service.metadata().unwrap();
+        let guard = repo.lock().unwrap();
+        let b_path = root_b.join("b.txt").to_string_lossy().to_string();
+        assert!(
+            guard.exists(&b_path).unwrap(),
+            "files outside the scanned root must not be removed"
+        );
+    }
+
+    #[test]
+    fn missing_root_skips_reconciliation() {
+        let (tmp, root) = setup_test_dir();
+        fs::write(root.join("a.txt"), "hello").unwrap();
+
+        let service = create_index_service(&tmp);
+        let scanner = FilesystemScanner::new(&service);
+        scanner.scan_directory(&root).unwrap();
+
+        // Remove the whole root directory — reconciliation must not wipe
+        // the index for a root that cannot be read
+        fs::remove_dir_all(&root).unwrap();
+        let stats = scanner.scan_directory(&root).unwrap();
+        assert_eq!(stats.files_removed, 0);
+
+        let repo = service.metadata().unwrap();
+        let guard = repo.lock().unwrap();
+        let a_path = root.join("a.txt").to_string_lossy().to_string();
+        assert!(
+            guard.exists(&a_path).unwrap(),
+            "metadata must survive when the root is unreadable"
+        );
+    }
+
+    #[test]
+    fn rescan_with_no_changes_removes_nothing() {
+        let (tmp, root) = setup_test_dir();
+        fs::write(root.join("a.txt"), "hello").unwrap();
+
+        let service = create_index_service(&tmp);
+        let scanner = FilesystemScanner::new(&service);
+        scanner.scan_directory(&root).unwrap();
+
+        let stats = scanner.scan_directory(&root).unwrap();
+        assert_eq!(stats.files_removed, 0);
+        assert_eq!(stats.files_unchanged, 1);
+    }
+
+    #[test]
+    fn unsupported_files_present_on_disk_are_not_removed() {
+        let (tmp, root) = setup_test_dir();
+        fs::write(root.join("doc.txt"), "hello").unwrap();
+        fs::write(root.join("image.png"), [0x89, 0x50, 0x4E, 0x47]).unwrap();
+
+        let service = create_index_service(&tmp);
+        let scanner = FilesystemScanner::new(&service);
+        let stats1 = scanner.scan_directory(&root).unwrap();
+        assert_eq!(stats1.files_indexed, 1);
+        assert_eq!(stats1.files_skipped, 1);
+
+        // Rescan — the skipped image.png still exists, nothing is removed
+        let stats2 = scanner.scan_directory(&root).unwrap();
+        assert_eq!(stats2.files_removed, 0);
     }
 }

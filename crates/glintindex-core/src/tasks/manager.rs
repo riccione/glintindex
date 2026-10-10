@@ -82,6 +82,19 @@ impl ProgressReporter for SharedProgressReporter {
         });
     }
 
+    fn on_file_removed(&self, path: &Path) {
+        self.update_progress(|p| {
+            p.files_processed += 1;
+            p.files_removed += 1;
+            p.current_file = Some(
+                path.file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_string(),
+            );
+        });
+    }
+
     fn on_file_failed(&self, path: &Path, _reason: &str) {
         self.update_progress(|p| {
             p.files_processed += 1;

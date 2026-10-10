@@ -27,6 +27,7 @@ pub struct ProgressBarReporter {
     processed: AtomicU64,
     indexed: AtomicU64,
     skipped: AtomicU64,
+    removed: AtomicU64,
     failed: AtomicU64,
     last_render: Mutex<Instant>,
 }
@@ -46,6 +47,7 @@ impl ProgressBarReporter {
             processed: AtomicU64::new(0),
             indexed: AtomicU64::new(0),
             skipped: AtomicU64::new(0),
+            removed: AtomicU64::new(0),
             failed: AtomicU64::new(0),
             last_render: Mutex::new(Instant::now()),
         }
@@ -66,10 +68,15 @@ impl ProgressBarReporter {
             let processed = self.processed.load(Ordering::Relaxed);
             let indexed = self.indexed.load(Ordering::Relaxed);
             let skipped = self.skipped.load(Ordering::Relaxed);
+            let removed = self.removed.load(Ordering::Relaxed);
             let failed = self.failed.load(Ordering::Relaxed);
-            self.bar.set_message(format!(
+            let mut message = format!(
                 "Processed: {processed} | Indexed: {indexed} | Skipped: {skipped} | Errors: {failed}"
-            ));
+            );
+            if removed > 0 {
+                message.push_str(&format!(" | Removed: {removed}"));
+            }
+            self.bar.set_message(message);
         }
     }
 }
@@ -87,6 +94,13 @@ impl ProgressReporter for ProgressBarReporter {
     fn on_file_skipped(&self, _path: &Path) {
         self.processed.fetch_add(1, Ordering::Relaxed);
         self.skipped.fetch_add(1, Ordering::Relaxed);
+        self.bar.tick();
+        self.maybe_render();
+    }
+
+    fn on_file_removed(&self, _path: &Path) {
+        self.processed.fetch_add(1, Ordering::Relaxed);
+        self.removed.fetch_add(1, Ordering::Relaxed);
         self.bar.tick();
         self.maybe_render();
     }
@@ -124,10 +138,15 @@ impl ProgressReporter for ProgressBarReporter {
         let processed = self.processed.load(Ordering::Relaxed);
         let indexed = self.indexed.load(Ordering::Relaxed);
         let skipped = self.skipped.load(Ordering::Relaxed);
+        let removed = self.removed.load(Ordering::Relaxed);
         let failed = self.failed.load(Ordering::Relaxed);
-        self.bar.finish_with_message(format!(
+        let mut message = format!(
             "Done — Processed: {processed} | Indexed: {indexed} | Skipped: {skipped} | Errors: {failed}"
-        ));
+        );
+        if removed > 0 {
+            message.push_str(&format!(" | Removed: {removed}"));
+        }
+        self.bar.finish_with_message(message);
     }
 }
 
@@ -148,11 +167,13 @@ mod tests {
         reporter.on_file_indexed(path);
         reporter.on_file_indexed(path);
         reporter.on_file_skipped(path);
+        reporter.on_file_removed(path);
         reporter.on_file_failed(path, "error");
 
-        assert_eq!(reporter.processed.load(Ordering::Relaxed), 4);
+        assert_eq!(reporter.processed.load(Ordering::Relaxed), 5);
         assert_eq!(reporter.indexed.load(Ordering::Relaxed), 2);
         assert_eq!(reporter.skipped.load(Ordering::Relaxed), 1);
+        assert_eq!(reporter.removed.load(Ordering::Relaxed), 1);
         assert_eq!(reporter.failed.load(Ordering::Relaxed), 1);
     }
 }
