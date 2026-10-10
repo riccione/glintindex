@@ -408,6 +408,41 @@ impl GlintIndexWindow {
             });
         }
 
+        // Start indexing at startup when enabled (runs on a background thread)
+        {
+            let should_auto_index = {
+                let st = state.borrow();
+                st.service.config().index_on_startup
+                    && st.service.has_enabled_folders()
+                    && !st.service.is_indexing()
+            };
+            if should_auto_index {
+                let mut st = state.borrow_mut();
+                match st.service.start_indexing() {
+                    Ok(_) => {
+                        tracing::info!(
+                            target: "glintindex::gui",
+                            "starting startup indexing job"
+                        );
+                        st.status = "Startup indexing started...".to_string();
+                        st.progress_active = true;
+                        if let Some(ref label) = st.status_label {
+                            label.set_text(&st.status);
+                        }
+                        drop(st);
+                        schedule_startup_job_watcher(&state);
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            target: "glintindex::gui",
+                            error = %e,
+                            "startup indexing failed to start"
+                        );
+                    }
+                }
+            }
+        }
+
         Self {
             window,
             state,
@@ -432,6 +467,85 @@ impl WindowState {
     pub fn refresh_statistics(&mut self) {
         self.statistics = self.service.statistics().ok();
     }
+}
+
+/// Schedules a timer that tracks the startup indexing job to completion.
+///
+/// Updates the status bar with live progress while the job runs, then
+/// stores the final progress in state and shows a completion or failure
+/// message. The timer stops as soon as the job is no longer running.
+fn schedule_startup_job_watcher(state: &Rc<RefCell<WindowState>>) {
+    let state_clone = state.clone();
+
+    gtk::glib::timeout_add_local(std::time::Duration::from_millis(200), move || {
+        enum JobOutcome {
+            Running(Option<String>),
+            Completed(glintindex_core::tasks::Progress),
+            Failed(String),
+            Finished,
+        }
+
+        // Short borrow, released before any widget updates
+        let outcome = {
+            let st = state_clone.borrow();
+            if st.service.is_indexing() {
+                JobOutcome::Running(st.service.current_progress().map(|p| p.status_message))
+            } else {
+                match st.service.job_status() {
+                    Some(status) => match status.state {
+                        glintindex_core::tasks::JobState::Failed(msg) => JobOutcome::Failed(msg),
+                        _ => match st.service.current_progress() {
+                            Some(progress) => JobOutcome::Completed(progress),
+                            None => JobOutcome::Finished,
+                        },
+                    },
+                    None => JobOutcome::Finished,
+                }
+            }
+        };
+
+        match outcome {
+            JobOutcome::Running(message) => {
+                let message = message.unwrap_or_else(|| "Indexing...".to_string());
+                let mut st = state_clone.borrow_mut();
+                st.status = message.clone();
+                if let Some(ref label) = st.status_label {
+                    label.set_text(&message);
+                }
+                gtk::glib::ControlFlow::Continue
+            }
+            JobOutcome::Completed(progress) => {
+                let mut st = state_clone.borrow_mut();
+                st.last_job_progress = Some(progress);
+                st.progress_active = false;
+                st.refresh_statistics();
+                st.status = "Indexing completed".to_string();
+                if let Some(ref label) = st.status_label {
+                    label.set_text(&st.status);
+                }
+                gtk::glib::ControlFlow::Break
+            }
+            JobOutcome::Failed(msg) => {
+                let mut st = state_clone.borrow_mut();
+                st.progress_active = false;
+                st.status = format!("Indexing failed: {msg}");
+                if let Some(ref label) = st.status_label {
+                    label.set_text(&st.status);
+                }
+                gtk::glib::ControlFlow::Break
+            }
+            JobOutcome::Finished => {
+                // Job ended without a captured progress snapshot
+                let mut st = state_clone.borrow_mut();
+                st.progress_active = false;
+                st.status = "Indexing completed".to_string();
+                if let Some(ref label) = st.status_label {
+                    label.set_text(&st.status);
+                }
+                gtk::glib::ControlFlow::Break
+            }
+        }
+    });
 }
 
 /// Formats preview output into displayable text.

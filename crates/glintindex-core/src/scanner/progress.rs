@@ -32,6 +32,7 @@ use std::path::Path;
 ///
 ///     fn on_file_indexed(&self, _path: &Path) {}
 ///     fn on_file_skipped(&self, _path: &Path) {}
+///     fn on_file_removed(&self, _path: &Path) {}
 ///     fn on_file_failed(&self, _path: &Path, _reason: &str) {}
 ///     fn on_parser_error(&self, _path: &Path, _parser: &str, _reason: &str) {}
 ///     fn on_parser_panic(&self, _path: &Path, _parser: &str) {}
@@ -48,6 +49,13 @@ pub trait ProgressReporter: Send + Sync {
 
     /// Called when a file is skipped (unsupported type, binary, etc.).
     fn on_file_skipped(&self, path: &Path);
+
+    /// Called when a file is removed from the index because it no
+    /// longer exists on disk.
+    ///
+    /// The default implementation is a no-op so existing reporters
+    /// remain source-compatible.
+    fn on_file_removed(&self, _path: &Path) {}
 
     /// Called when a file fails to process (I/O error, etc.).
     fn on_file_failed(&self, path: &Path, reason: &str);
@@ -91,6 +99,7 @@ mod tests {
         files_discovered: AtomicU64,
         files_indexed: AtomicU64,
         files_skipped: AtomicU64,
+        files_removed: AtomicU64,
         files_failed: AtomicU64,
         parser_errors: AtomicU64,
         parser_panics: AtomicU64,
@@ -102,6 +111,7 @@ mod tests {
                 files_discovered: AtomicU64::new(0),
                 files_indexed: AtomicU64::new(0),
                 files_skipped: AtomicU64::new(0),
+                files_removed: AtomicU64::new(0),
                 files_failed: AtomicU64::new(0),
                 parser_errors: AtomicU64::new(0),
                 parser_panics: AtomicU64::new(0),
@@ -118,6 +128,9 @@ mod tests {
         }
         fn on_file_skipped(&self, _path: &Path) {
             self.files_skipped.fetch_add(1, Ordering::Relaxed);
+        }
+        fn on_file_removed(&self, _path: &Path) {
+            self.files_removed.fetch_add(1, Ordering::Relaxed);
         }
         fn on_file_failed(&self, _path: &Path, _reason: &str) {
             self.files_failed.fetch_add(1, Ordering::Relaxed);
@@ -141,6 +154,7 @@ mod tests {
         reporter.on_file_indexed(path);
         reporter.on_file_discovered(path);
         reporter.on_file_skipped(path);
+        reporter.on_file_removed(path);
         reporter.on_file_failed(path, "error");
         reporter.on_parser_error(path, "PDF", "corrupted");
         reporter.on_parser_panic(path, "DOCX");
@@ -148,6 +162,7 @@ mod tests {
         assert_eq!(reporter.files_discovered.load(Ordering::Relaxed), 2);
         assert_eq!(reporter.files_indexed.load(Ordering::Relaxed), 1);
         assert_eq!(reporter.files_skipped.load(Ordering::Relaxed), 1);
+        assert_eq!(reporter.files_removed.load(Ordering::Relaxed), 1);
         assert_eq!(reporter.files_failed.load(Ordering::Relaxed), 1);
         assert_eq!(reporter.parser_errors.load(Ordering::Relaxed), 1);
         assert_eq!(reporter.parser_panics.load(Ordering::Relaxed), 1);
@@ -160,6 +175,7 @@ mod tests {
         reporter.on_file_discovered(path);
         reporter.on_file_indexed(path);
         reporter.on_file_skipped(path);
+        reporter.on_file_removed(path);
         reporter.on_file_failed(path, "error");
         reporter.on_parser_error(path, "PDF", "corrupted");
         reporter.on_parser_panic(path, "DOCX");

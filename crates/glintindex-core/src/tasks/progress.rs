@@ -34,6 +34,9 @@ pub struct Progress {
     pub files_reindexed: u64,
     /// Number of files skipped because unchanged (metadata matches).
     pub files_unchanged: u64,
+    /// Number of files removed from the index because they no longer
+    /// exist on disk.
+    pub files_removed: u64,
     /// Number of files skipped (unsupported, binary, etc.).
     pub files_skipped: u64,
     /// Number of files that failed to parse.
@@ -73,6 +76,7 @@ impl Progress {
             files_indexed: stats.files_indexed,
             files_reindexed: stats.files_reindexed,
             files_unchanged: stats.files_unchanged,
+            files_removed: stats.files_removed,
             files_skipped: stats.files_skipped,
             files_failed: stats.files_failed,
             parser_errors: stats.parser_errors,
@@ -89,6 +93,9 @@ impl std::fmt::Display for Progress {
         writeln!(f, "Files indexed:    {}", self.files_indexed)?;
         writeln!(f, "Files re-indexed: {}", self.files_reindexed)?;
         writeln!(f, "Files skipped:    {}", self.files_unchanged)?;
+        if self.files_removed > 0 {
+            writeln!(f, "Files removed:    {}", self.files_removed)?;
+        }
         if self.files_failed > 0 {
             writeln!(f, "Files failed:     {}", self.files_failed)?;
         }
@@ -114,6 +121,7 @@ mod tests {
         assert_eq!(progress.files_indexed, 0);
         assert_eq!(progress.files_reindexed, 0);
         assert_eq!(progress.files_unchanged, 0);
+        assert_eq!(progress.files_removed, 0);
         assert_eq!(progress.files_skipped, 0);
         assert_eq!(progress.files_failed, 0);
         assert_eq!(progress.parser_errors, 0);
@@ -134,6 +142,7 @@ mod tests {
         stats.files_indexed = 40;
         stats.files_reindexed = 3;
         stats.files_unchanged = 2;
+        stats.files_removed = 5;
         stats.files_skipped = 5;
         stats.files_failed = 5;
         stats.parser_errors = 3;
@@ -145,6 +154,7 @@ mod tests {
         assert_eq!(progress.files_indexed, 40);
         assert_eq!(progress.files_reindexed, 3);
         assert_eq!(progress.files_unchanged, 2);
+        assert_eq!(progress.files_removed, 5);
         assert_eq!(progress.files_skipped, 5);
         assert_eq!(progress.files_failed, 5);
         assert_eq!(progress.parser_errors, 3);
@@ -164,6 +174,7 @@ mod tests {
         stats.files_indexed = 116;
         stats.files_reindexed = 8;
         stats.files_unchanged = 8;
+        stats.files_removed = 3;
         stats.parser_errors = 4;
 
         let progress = Progress::from_statistics(&stats, "Completed");
@@ -171,6 +182,7 @@ mod tests {
         assert!(output.contains("Files indexed:    116"));
         assert!(output.contains("Files re-indexed: 8"));
         assert!(output.contains("Files skipped:    8"));
+        assert!(output.contains("Files removed:    3"));
         assert!(output.contains("Parser errors:    4"));
     }
 }

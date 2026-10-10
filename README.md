@@ -166,6 +166,8 @@ glintindex-cli init
 
 ### Index files
 
+Incremental: unchanged files are skipped, modified files are re-indexed, and index entries for files that no longer exist on disk are removed.
+
 ```bash
 # Index all configured folders
 glintindex-cli index
@@ -260,6 +262,7 @@ glintindex
 - **File actions**: Open files, reveal in file manager, copy file path
 - **Settings**: Configure theme (light/dark/system), font size, indexed folders, and ignored folders
 - **Index management**: Index all folders, rebuild index, or clear index from the GUI
+- **Startup indexing**: Index runs automatically in the background on launch (configurable, default on)
 
 ### Settings
 
@@ -267,7 +270,7 @@ Access settings via the hamburger menu or keyboard shortcut:
 
 - **General**: Configure indexed and ignored folders
 - **Appearance**: Theme selection, font size (8-32pt)
-- **Index**: View index statistics, trigger rebuild or clear
+- **Index**: View index statistics, toggle startup indexing, trigger rebuild or clear
 
 ## Configuration
 
@@ -293,6 +296,8 @@ max_preview_size = 200
 
 theme = "system"  # Options: "light", "dark", "system"
 font_size = 12    # Range: 8-32
+
+index_on_startup = true  # Auto-index in the GUI on launch
 
 [logging]
 level = "error"         # "off", "error", "warn", "info", "debug", "trace"
