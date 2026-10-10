@@ -223,12 +223,14 @@ impl GlintIndexWindow {
                         } else {
                             st.preview_service.load_preview(&path, &st.query)
                         };
-                        st.preview_text = format_preview_content(&output);
-
-                        // Update the actual TextBuffer so the preview pane shows content
-                        if let Some(ref buffer) = st.preview_buffer {
-                            buffer.set_text(&st.preview_text);
-                        }
+                        // Render into the TextBuffer with match highlights
+                        // and gap markers between context blocks.
+                        let text = if let Some(ref buffer) = st.preview_buffer {
+                            ui::preview::populate_preview_buffer(buffer, &output)
+                        } else {
+                            String::new()
+                        };
+                        st.preview_text = text;
                     }
                 } else {
                     // No selection — disable all buttons
@@ -550,26 +552,4 @@ fn schedule_startup_job_watcher(state: &Rc<RefCell<WindowState>>) {
             }
         }
     });
-}
-
-/// Formats preview output into displayable text.
-pub fn format_preview_content(output: &glintindex_core::PreviewOutput) -> String {
-    let mut content = String::new();
-
-    if output.truncated {
-        content.push_str(&format!(
-            "// File truncated (showing first {} bytes)\n",
-            output.lines.len() * 50
-        ));
-    }
-
-    if output.encoding != glintindex_core::Encoding::Utf8 {
-        content.push_str(&format!("// Encoding: {:?}\n", output.encoding));
-    }
-
-    for line in &output.lines {
-        content.push_str(&format!("{:>4} {}\n", line.line_number, line.text));
-    }
-
-    content
 }
