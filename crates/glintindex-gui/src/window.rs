@@ -134,10 +134,11 @@ impl GlintIndexWindow {
         // Preview pane (right pane)
         let (preview_widget, preview_buffer) = ui::preview::build_with_buffer();
 
-        // Store the preview buffer reference in state
+        // Store the preview buffer reference in state (keep a local
+        // handle for the selection handler below)
         {
             let mut st = state.borrow_mut();
-            st.preview_buffer = Some(preview_buffer);
+            st.preview_buffer = Some(preview_buffer.clone());
         }
 
         // Action bar for selected result
@@ -175,6 +176,10 @@ impl GlintIndexWindow {
             let open_btn_clone = open_btn.clone();
             let open_folder_btn_clone = open_folder_btn.clone();
             let copy_path_btn_clone = copy_path_btn.clone();
+            // Cloned so the None branch can reset the preview without
+            // borrowing state — GTK emits row_selected(None) while the
+            // toolbar still holds a borrow_mut() during list refresh.
+            let preview_buffer_clone = preview_buffer.clone();
             results_listbox.connect_row_selected(move |_listbox, row| {
                 if let Some(row) = row {
                     let index = row.index() as usize;
@@ -233,10 +238,13 @@ impl GlintIndexWindow {
                         st.preview_text = text;
                     }
                 } else {
-                    // No selection — disable all buttons
+                    // No selection — disable all buttons and restore the
+                    // preview placeholder so a cleared/changed query never
+                    // leaves the previous document on screen.
                     open_btn_clone.set_sensitive(false);
                     open_folder_btn_clone.set_sensitive(false);
                     copy_path_btn_clone.set_sensitive(false);
+                    ui::preview::reset_to_placeholder(&preview_buffer_clone);
                 }
             });
         }

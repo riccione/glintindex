@@ -343,6 +343,7 @@ fn test_apply_search_response_error_does_not_poison_per_page() {
     let _ = gtk::init();
     let (mut state, _tmp) = setup_test_state();
     state.per_page = 20;
+    state.preview_text = "stale preview from previous selection".to_string();
 
     // limit == 0 is spawn_search's error sentinel (e.g. unbalanced quote).
     let error_response = glintindex_core::SearchResponse::new(Vec::new(), 0, 0, 0);
@@ -353,6 +354,7 @@ fn test_apply_search_response_error_does_not_poison_per_page() {
     assert_eq!(state.total_pages, 1);
     assert_eq!(state.current_page, 1);
     assert!(state.results.is_empty());
+    assert!(state.preview_text.is_empty(), "stale preview state cleared");
 }
 
 #[gtk::test]
@@ -382,6 +384,10 @@ fn test_apply_search_response_updates_pagination_without_touching_per_page() {
     assert_eq!(state.total_results, 1);
     assert_eq!(state.results.len(), 1);
     assert!(state.status.starts_with("Showing"), "got: {}", state.status);
+    assert!(
+        state.preview_text.is_empty(),
+        "preview state cleared on new results"
+    );
 }
 
 #[gtk::test]

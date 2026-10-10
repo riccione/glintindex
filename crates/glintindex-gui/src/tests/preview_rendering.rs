@@ -137,6 +137,54 @@ fn test_preview_buffer_reset_on_selection_lost() {
 }
 
 #[gtk::test]
+fn test_reset_to_placeholder_restores_text() {
+    let _ = gtk::init();
+    let (_preview_widget, buffer) = crate::ui::preview::build_with_buffer();
+
+    buffer.set_text("document content that should disappear");
+    crate::ui::preview::reset_to_placeholder(&buffer);
+
+    assert_eq!(buffer_text(&buffer), crate::ui::preview::PLACEHOLDER_TEXT);
+}
+
+#[gtk::test]
+fn test_selection_lost_via_listbox_refresh_resets_preview() {
+    let _ = gtk::init();
+
+    // Mirrors the window.rs wiring: a row_selected handler that
+    // populates the buffer on Some and resets it on None (using a
+    // cloned buffer — GTK emits None while the caller holds a
+    // borrow_mut on state, so the handler must not touch state).
+    let (_widget, buffer) = crate::ui::preview::build_with_buffer();
+    let buffer_for_select = buffer.clone();
+    let buffer_for_clear = buffer.clone();
+
+    let listbox = gtk::ListBox::builder()
+        .selection_mode(gtk::SelectionMode::Single)
+        .build();
+    listbox.connect_row_selected(move |_lb, row| {
+        if let Some(row) = row {
+            buffer_for_select.set_text(&format!("preview for row {}", row.index()));
+        } else {
+            crate::ui::preview::reset_to_placeholder(&buffer_for_clear);
+        }
+    });
+
+    // Populate list, select the first row (loads a preview).
+    for label in ["alpha", "beta"] {
+        listbox.append(&gtk::Label::new(Some(label)));
+    }
+    listbox.select_row(listbox.row_at_index(0).as_ref());
+    assert!(buffer_text(&buffer).contains("row 0"), "preview loaded");
+
+    // Refresh (as the toolbar does on a cleared/changed query) removes
+    // the selected row — GTK fires row_selected(None) and the preview
+    // must fall back to the placeholder.
+    crate::ui::results::refresh_results_list(&listbox, &[]);
+    assert_eq!(buffer_text(&buffer), crate::ui::preview::PLACEHOLDER_TEXT);
+}
+
+#[gtk::test]
 fn test_preview_line_numbers_present() {
     let _ = gtk::init();
     let (_preview_widget, buffer) = crate::ui::preview::build_with_buffer();

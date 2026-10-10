@@ -68,6 +68,7 @@ pub(crate) fn apply_search_response(
 
     st.results = response.results;
     st.total_results = total;
+    st.preview_text.clear();
     st.total_pages = if limit == 0 || total == 0 {
         1
     } else {
@@ -224,6 +225,13 @@ pub fn build_toolbar(
                 st.total_pages = 1;
                 st.current_page = 1;
                 st.status = "No results found".to_string();
+                st.preview_text.clear();
+                // The row_selected(None) handler also resets the buffer
+                // when the selected row is removed below; reset here too
+                // so the pane is cleared even if nothing was selected.
+                if let Some(ref buffer) = st.preview_buffer {
+                    super::preview::reset_to_placeholder(buffer);
+                }
                 results::refresh_results_list(&listbox, &st.results);
                 super::status_bar::refresh_status_bar(
                     &st,

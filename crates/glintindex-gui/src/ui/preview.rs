@@ -11,6 +11,8 @@ use gtk::{Box as GtkBox, Label, Orientation, TextBuffer, TextView};
 pub const MATCH_TAG: &str = "match-highlight";
 /// Tag name for dimmed metadata/gap lines (headers, `…` separators).
 pub const GAP_TAG: &str = "gap";
+/// Placeholder text shown when no file is previewed.
+pub const PLACEHOLDER_TEXT: &str = "Select a file to preview";
 
 /// Builds the preview pane widget with a placeholder.
 #[allow(dead_code)]
@@ -49,10 +51,19 @@ pub fn build_with_buffer() -> (GtkBox, TextBuffer) {
 
     let buffer = text_view.buffer();
     create_preview_tags(&buffer);
-    buffer.set_text("Select a file to preview");
+    buffer.set_text(PLACEHOLDER_TEXT);
 
     container.append(&text_view);
     (container, buffer)
+}
+
+/// Resets the buffer to the startup placeholder text.
+///
+/// Used when the selection is lost (search input cleared, query
+/// changed, results refreshed) so the preview pane never keeps
+/// showing a previously selected document.
+pub fn reset_to_placeholder(buffer: &TextBuffer) {
+    buffer.set_text(PLACEHOLDER_TEXT);
 }
 
 /// Creates the highlight and gap text tags on a buffer's tag table.
