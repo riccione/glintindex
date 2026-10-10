@@ -205,6 +205,10 @@ glintindex-cli search "TODO fix"
 glintindex-cli search "rust" --page 2 --limit 10
 ```
 
+Matching terms in result snippets are highlighted in bold yellow when
+output goes to a terminal. Colors are disabled automatically when
+output is piped or the `NO_COLOR` environment variable is set.
+
 ### View statistics
 
 ```bash
