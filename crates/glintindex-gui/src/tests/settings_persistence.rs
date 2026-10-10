@@ -286,6 +286,54 @@ fn test_ignored_folders_add_and_remove() {
 }
 
 #[gtk::test]
+fn test_index_on_startup_toggle_updates_config() {
+    let _ = gtk::init();
+    let (state, _tmp) = setup_test_state();
+
+    let state = std::rc::Rc::new(std::cell::RefCell::new(state));
+    let state_clone = state.clone();
+
+    let check = gtk::CheckButton::with_label("Index automatically at startup");
+    check.set_active(state.borrow().service.config().index_on_startup);
+    assert!(check.is_active(), "default should be on");
+
+    check.connect_toggled(move |btn| {
+        let enabled = btn.is_active();
+        let mut st = state_clone.borrow_mut();
+        let _ = st.service.set_index_on_startup(enabled);
+    });
+
+    check.set_active(false);
+    super::process_events();
+
+    {
+        let st = state.borrow();
+        assert!(!st.service.config().index_on_startup);
+    }
+
+    check.set_active(true);
+    super::process_events();
+
+    {
+        let st = state.borrow();
+        assert!(st.service.config().index_on_startup);
+    }
+}
+
+#[gtk::test]
+fn test_index_on_startup_roundtrip_preserves_setting() {
+    let _ = gtk::init();
+    let (mut state, tmp) = setup_test_state();
+    let config_path = tmp.path().join("config.toml");
+
+    let _ = state.service.set_index_on_startup(false);
+    glintindex_core::config::loader::save(&config_path, state.service.config()).unwrap();
+
+    let restored = glintindex_core::config::loader::load(&config_path).unwrap();
+    assert!(!restored.index_on_startup);
+}
+
+#[gtk::test]
 fn test_search_entry_text_updates_query() {
     let _ = gtk::init();
     let (state, _tmp) = setup_test_state();

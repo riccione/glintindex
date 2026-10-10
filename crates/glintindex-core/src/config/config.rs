@@ -57,6 +57,13 @@ pub struct AppConfig {
     /// Default: 500.
     #[serde(default = "default_commit_interval")]
     pub commit_interval: usize,
+    /// Whether the GUI starts indexing automatically at startup.
+    ///
+    /// When enabled, opening the GUI kicks off a background indexing
+    /// job so the index stays fresh across sessions.
+    /// Default: true.
+    #[serde(default = "default_index_on_startup")]
+    pub index_on_startup: bool,
     /// Logging configuration.
     #[serde(default)]
     pub logging: LoggingSettings,
@@ -85,6 +92,11 @@ fn default_main_split_ratio() -> u32 {
 /// Returns 500 documents between incremental commits.
 fn default_commit_interval() -> usize {
     500
+}
+
+/// Returns the default startup auto-index preference for deserialization.
+fn default_index_on_startup() -> bool {
+    true
 }
 
 /// Returns the default logging level for deserialization.
@@ -202,6 +214,7 @@ impl Default for AppConfig {
             font_size: default_font_size(),
             main_split_ratio: default_main_split_ratio(),
             commit_interval: default_commit_interval(),
+            index_on_startup: default_index_on_startup(),
             logging: LoggingSettings::default(),
             indexing: IndexingSettings::default(),
             pagination: PaginationSettings::default(),
@@ -265,6 +278,7 @@ mod tests {
         assert!(config.recent_searches.is_empty());
         assert_eq!(config.font_size, 12);
         assert_eq!(config.commit_interval, 500);
+        assert!(config.index_on_startup);
         assert_eq!(config.logging.level, "error");
         assert_eq!(config.logging.max_retention_days, 7);
         assert_eq!(config.indexing.max_file_size_mb, 50);
@@ -370,6 +384,33 @@ max_preview_size = 200
         let config: AppConfig = toml::from_str(toml).unwrap();
         assert_eq!(config.pagination.default_page_size, 20);
         assert_eq!(config.pagination.max_page_size, 100);
+    }
+
+    #[test]
+    fn deserialize_missing_index_on_startup_defaults_true() {
+        let toml = r#"
+indexed_folders = []
+ignored_folders = []
+index_directory = "/tmp/test"
+theme = "system"
+max_preview_size = 200
+"#;
+        let config: AppConfig = toml::from_str(toml).unwrap();
+        assert!(config.index_on_startup);
+    }
+
+    #[test]
+    fn deserialize_index_on_startup_false() {
+        let toml = r#"
+indexed_folders = []
+ignored_folders = []
+index_directory = "/tmp/test"
+theme = "system"
+max_preview_size = 200
+index_on_startup = false
+"#;
+        let config: AppConfig = toml::from_str(toml).unwrap();
+        assert!(!config.index_on_startup);
     }
 
     #[test]

@@ -105,6 +105,10 @@ theme = "system"
 # Default: 500
 commit_interval = 500
 
+# Automatically index enabled folders when the GUI starts.
+# Default: true
+index_on_startup = true
+
 [logging]
 # Log level: "off", "error", "warn", "info", "debug", "trace"
 # Default: "error" (silent for end users)

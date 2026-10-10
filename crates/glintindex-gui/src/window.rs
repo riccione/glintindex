@@ -408,6 +408,39 @@ impl GlintIndexWindow {
             });
         }
 
+        // Start indexing at startup when enabled (runs on a background thread)
+        {
+            let should_auto_index = {
+                let st = state.borrow();
+                st.service.config().index_on_startup
+                    && st.service.has_enabled_folders()
+                    && !st.service.is_indexing()
+            };
+            if should_auto_index {
+                let mut st = state.borrow_mut();
+                match st.service.start_indexing() {
+                    Ok(_) => {
+                        tracing::info!(
+                            target: "glintindex::gui",
+                            "starting startup indexing job"
+                        );
+                        st.status = "Startup indexing started...".to_string();
+                        st.progress_active = true;
+                        if let Some(ref label) = st.status_label {
+                            label.set_text(&st.status);
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            target: "glintindex::gui",
+                            error = %e,
+                            "startup indexing failed to start"
+                        );
+                    }
+                }
+            }
+        }
+
         Self {
             window,
             state,

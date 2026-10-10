@@ -7,7 +7,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use gtk::prelude::*;
-use gtk::{Box as GtkBox, Button, Label, Orientation, ProgressBar, Separator};
+use gtk::{Box as GtkBox, Button, CheckButton, Label, Orientation, ProgressBar, Separator};
 
 use crate::window::WindowState;
 
@@ -25,6 +25,35 @@ pub fn build(state: &Rc<RefCell<WindowState>>) -> GtkBox {
         .css_classes(["title-1"])
         .build();
     content.append(&title);
+    content.append(&Separator::new(gtk::Orientation::Horizontal));
+
+    // Startup section
+    let startup_title = Label::builder()
+        .label("Startup")
+        .halign(gtk::Align::Start)
+        .css_classes(["title-2"])
+        .build();
+    content.append(&startup_title);
+
+    let index_on_startup_check = CheckButton::builder()
+        .label("Index automatically at startup")
+        .active(state.borrow().service.config().index_on_startup)
+        .build();
+    content.append(&index_on_startup_check);
+
+    let state_clone = state.clone();
+    index_on_startup_check.connect_toggled(move |check| {
+        let enabled = check.is_active();
+        let mut st = state_clone.borrow_mut();
+        if let Err(e) = st.service.set_index_on_startup(enabled) {
+            tracing::warn!(
+                target: "glintindex::gui",
+                error = %e,
+                "failed to persist index_on_startup setting"
+            );
+        }
+    });
+
     content.append(&Separator::new(gtk::Orientation::Horizontal));
 
     // Action buttons
@@ -74,6 +103,17 @@ pub fn build(state: &Rc<RefCell<WindowState>>) -> GtkBox {
     let stats_clone = stats_box.clone();
     let progress_clone = progress_bar.clone();
     gtk::glib::idle_add_local(move || {
+        // Pick up results from a job (e.g. startup indexing) that
+        // finished before this page was opened.
+        {
+            let mut st = state_clone.borrow_mut();
+            if !st.service.is_indexing() {
+                if st.last_job_progress.is_none() {
+                    st.last_job_progress = st.service.current_progress();
+                }
+                st.refresh_statistics();
+            }
+        }
         refresh_stats(&state_clone, &status_clone, &stats_clone, &progress_clone);
         gtk::glib::ControlFlow::Break
     });
@@ -285,6 +325,13 @@ fn refresh_stats(
             "Files Skipped",
             &progress.files_unchanged.to_string(),
         );
+        if progress.files_removed > 0 {
+            add_stat_row(
+                stats_box,
+                "Files Removed",
+                &progress.files_removed.to_string(),
+            );
+        }
         if progress.files_failed > 0 {
             add_stat_row(
                 stats_box,

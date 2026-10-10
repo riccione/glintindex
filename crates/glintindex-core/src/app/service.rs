@@ -760,6 +760,20 @@ impl ApplicationService {
         self.save_config()?;
         Ok(())
     }
+
+    /// Updates the startup auto-index preference and persists the change.
+    ///
+    /// When enabled, the GUI starts a background indexing job at startup
+    /// so the index stays fresh across sessions.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the configuration cannot be saved.
+    pub fn set_index_on_startup(&mut self, enabled: bool) -> Result<()> {
+        self.config.index_on_startup = enabled;
+        self.save_config()?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -1325,5 +1339,22 @@ mod tests {
         let status = service.watcher_status();
         assert!(!status.is_running);
         assert!(status.watched_dirs.is_empty());
+    }
+
+    #[test]
+    fn set_index_on_startup_persists() {
+        let tmp = TempDir::new().unwrap();
+        let config_path = tmp.path().join("config.toml");
+        let config = test_config(&tmp);
+        crate::config::loader::save(&config_path, &config).unwrap();
+
+        let mut service = ApplicationService::with_config_path(&config_path).unwrap();
+        assert!(service.config().index_on_startup);
+
+        service.set_index_on_startup(false).unwrap();
+        assert!(!service.config().index_on_startup);
+
+        let reloaded = crate::config::loader::load(&config_path).unwrap();
+        assert!(!reloaded.index_on_startup);
     }
 }
