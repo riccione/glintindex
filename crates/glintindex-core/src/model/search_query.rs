@@ -41,18 +41,22 @@ impl SearchQuery {
     }
 
     /// Sets pagination parameters on this query (builder pattern).
+    ///
+    /// `limit` is clamped to a minimum of 1 — a zero limit would
+    /// panic downstream in tantivy's `TopDocs::with_limit`.
     pub fn with_pagination(mut self, offset: usize, limit: usize) -> Self {
         self.offset = offset;
-        self.limit = limit;
+        self.limit = limit.max(1);
         self
     }
 
     /// Creates a paged query from a 1-based page number.
     ///
-    /// `page` is clamped to a minimum of 1. Offset is computed as
-    /// `(page - 1) * per_page`.
+    /// `page` is clamped to a minimum of 1 and `per_page` to a minimum
+    /// of 1. Offset is computed as `(page - 1) * per_page`.
     pub fn paged(query: impl Into<String>, page: usize, per_page: usize) -> Self {
         let page = page.max(1);
+        let per_page = per_page.max(1);
         let offset = (page - 1) * per_page;
         Self {
             query: query.into(),
@@ -116,6 +120,27 @@ mod tests {
         let q = SearchQuery::paged("test", 0, 20);
         assert_eq!(q.offset, 0);
         assert_eq!(q.limit, 20);
+    }
+
+    #[test]
+    fn paged_clamps_per_page_to_one() {
+        let q = SearchQuery::paged("test", 1, 0);
+        assert_eq!(q.offset, 0);
+        assert_eq!(q.limit, 1);
+    }
+
+    #[test]
+    fn paged_zero_per_page_still_offsets() {
+        let q = SearchQuery::paged("test", 3, 0);
+        assert_eq!(q.offset, 2, "offset uses the clamped per_page of 1");
+        assert_eq!(q.limit, 1);
+    }
+
+    #[test]
+    fn with_pagination_clamps_limit_to_one() {
+        let q = SearchQuery::new("test").with_pagination(40, 0);
+        assert_eq!(q.offset, 40);
+        assert_eq!(q.limit, 1);
     }
 
     #[test]

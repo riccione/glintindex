@@ -337,3 +337,83 @@ fn test_search_entry_clear_button_resets() {
     assert!(st.query.is_empty());
     assert!(st.results.is_empty());
 }
+
+#[gtk::test]
+fn test_apply_search_response_error_does_not_poison_per_page() {
+    let _ = gtk::init();
+    let (mut state, _tmp) = setup_test_state();
+    state.per_page = 20;
+
+    // limit == 0 is spawn_search's error sentinel (e.g. unbalanced quote).
+    let error_response = glintindex_core::SearchResponse::new(Vec::new(), 0, 0, 0);
+    crate::ui::toolbar::apply_search_response(&mut state, error_response);
+
+    assert_eq!(state.per_page, 20, "error response must not zero per_page");
+    assert_eq!(state.status, "Search failed");
+    assert_eq!(state.total_pages, 1);
+    assert_eq!(state.current_page, 1);
+    assert!(state.results.is_empty());
+}
+
+#[gtk::test]
+fn test_apply_search_response_updates_pagination_without_touching_per_page() {
+    let _ = gtk::init();
+    let (mut state, tmp) = setup_test_state();
+    state.per_page = 20;
+
+    let folder = tmp.path().join("docs");
+    std::fs::create_dir(&folder).unwrap();
+    std::fs::write(folder.join("a.txt"), "salsa recipe").unwrap();
+    let _ = state.service.add_folder(&folder);
+    let _ = state.service.index_folder(&folder);
+
+    let response = state
+        .service
+        .search(&glintindex_core::SearchQuery::new("salsa"))
+        .unwrap();
+    assert!(!response.is_empty());
+
+    crate::ui::toolbar::apply_search_response(&mut state, response);
+
+    assert_eq!(
+        state.per_page, 20,
+        "successful response must not alter per_page"
+    );
+    assert_eq!(state.total_results, 1);
+    assert_eq!(state.results.len(), 1);
+    assert!(state.status.starts_with("Showing"), "got: {}", state.status);
+}
+
+#[gtk::test]
+fn test_apply_search_response_empty_results_status() {
+    let _ = gtk::init();
+    let (mut state, _tmp) = setup_test_state();
+    state.per_page = 20;
+
+    let empty = glintindex_core::SearchResponse::new(Vec::new(), 0, 0, 20);
+    crate::ui::toolbar::apply_search_response(&mut state, empty);
+
+    assert_eq!(state.per_page, 20);
+    assert_eq!(state.status, "No results found");
+}
+
+#[gtk::test]
+fn test_paged_query_with_zero_per_page_still_searchable() {
+    let _ = gtk::init();
+    let (mut state, tmp) = setup_test_state();
+
+    let folder = tmp.path().join("docs");
+    std::fs::create_dir(&folder).unwrap();
+    std::fs::write(folder.join("a.txt"), "salsa recipe").unwrap();
+    let _ = state.service.add_folder(&folder);
+    let _ = state.service.index_folder(&folder);
+
+    // Simulates a zeroed per_page reaching the query builder: must not
+    // panic and must return a valid (clamped) response.
+    let response = state
+        .service
+        .search(&glintindex_core::SearchQuery::paged("salsa", 1, 0))
+        .unwrap();
+    assert_eq!(response.limit, 1);
+    assert!(!response.is_empty());
+}

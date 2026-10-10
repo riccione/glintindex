@@ -285,8 +285,10 @@ impl IndexService {
 
         // Single-pass search: fetch total count + top docs in one Tantivy execution.
         // `search_limit` ensures we fetch enough documents to cover both the skip
-        // (offset) and the page (limit).
-        let search_limit = query.offset.saturating_add(query.limit);
+        // (offset) and the page (limit). Clamped to ≥ 1 because tantivy's
+        // TopDocs::with_limit panics on zero (direct SearchQuery construction
+        // can bypass SearchQuery::paged's clamps).
+        let search_limit = query.offset.saturating_add(query.limit).max(1);
         let (total_hits, top_docs) = searcher.search(
             &*combined_query,
             &(Count, TopDocs::with_limit(search_limit).order_by_score()),
@@ -562,6 +564,35 @@ mod tests {
 
         let response = service.search(&SearchQuery::new("nonexistent")).unwrap();
         assert!(response.is_empty());
+    }
+
+    #[test]
+    fn search_with_zero_limit_does_not_panic() {
+        let (service, _tmp) = temp_index_service();
+        let doc = sample_document("a.txt", "hello world");
+        service.add_document(&doc).unwrap();
+        service.commit().unwrap();
+
+        // Direct struct construction bypasses every SearchQuery clamp;
+        // the collector must still never see a zero limit.
+        let query = SearchQuery {
+            query: "hello".to_string(),
+            offset: 0,
+            limit: 0,
+        };
+        let response = service.search(&query).unwrap();
+        assert!(response.is_empty(), "limit 0 requests an empty page");
+    }
+
+    #[test]
+    fn search_unbalanced_quote_returns_error_not_panic() {
+        let (service, _tmp) = temp_index_service();
+        let doc = sample_document("a.txt", "salsa recipe");
+        service.add_document(&doc).unwrap();
+        service.commit().unwrap();
+
+        let result = service.search(&SearchQuery::new("salsa\""));
+        assert!(result.is_err(), "unbalanced quote fails to parse");
     }
 
     #[test]

@@ -86,7 +86,7 @@ impl GlintIndexWindow {
 
         let theme = service.config().theme;
         let font_size = service.config().clamped_font_size();
-        let per_page = service.config().pagination.default_page_size;
+        let per_page = service.config().pagination.default_page_size.max(1);
         let preview_context_lines = service.config().clamped_preview_context_lines();
 
         let statistics = service.statistics().ok();
