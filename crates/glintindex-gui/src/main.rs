@@ -8,6 +8,7 @@
 
 mod application;
 mod file_actions;
+mod preview_model;
 mod theme;
 mod ui;
 mod window;

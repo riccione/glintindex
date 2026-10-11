@@ -95,15 +95,22 @@ fn create_preview_tags(buffer: &TextBuffer) {
 
 /// Populates the text buffer from preview output.
 ///
-/// Renders a dim `// File path: …` header, then line numbers and text,
-/// applies the `match-highlight` tag over each search match (byte offsets
-/// converted to character offsets for `TextBuffer`), inserts dim `…` gap
-/// markers between non-contiguous line blocks, and dim header lines for
-/// truncation/encoding notices.
-/// Returns the plain-text rendering of the buffer content.
+/// Builds the toolkit-agnostic [`crate::preview_model`] then renders it
+/// into the buffer: dim headers/gaps via the `gap` tag, match highlights
+/// via the `match-highlight` tag (byte ranges converted to character
+/// offsets). Returns the plain-text rendering of the buffer content.
 pub fn populate_preview_buffer(
     buffer: &TextBuffer,
     output: &glintindex_core::PreviewOutput,
+) -> String {
+    let model = crate::preview_model::build_preview_model(output);
+    populate_preview_buffer_from_model(buffer, &model)
+}
+
+/// Renders a [`crate::preview_model::PreviewModel`] into the text buffer.
+fn populate_preview_buffer_from_model(
+    buffer: &TextBuffer,
+    model: &crate::preview_model::PreviewModel,
 ) -> String {
     create_preview_tags(buffer);
     buffer.set_text("");
@@ -111,54 +118,39 @@ pub fn populate_preview_buffer(
     let mut plain = String::new();
     let mut offset: i32 = 0;
 
-    // Full file path header — the results list shows only the file
-    // name, so the path lives here as a dimmed `//` comment.
-    let path_header = format!("// File path: {}\n", output.path.display());
-    offset = insert_styled(buffer, offset, &path_header, GAP_TAG);
-    plain.push_str(&path_header);
-
-    if output.truncated {
-        let header = format!(
-            "// Preview truncated (original size: {} bytes)\n",
-            output.original_size
-        );
-        offset = insert_styled(buffer, offset, &header, GAP_TAG);
-        plain.push_str(&header);
-    }
-
-    if output.encoding != glintindex_core::Encoding::Utf8 {
-        let header = format!("// Encoding: {:?}\n", output.encoding);
-        offset = insert_styled(buffer, offset, &header, GAP_TAG);
-        plain.push_str(&header);
-    }
-
-    let mut previous_line: Option<usize> = None;
-    for line in &output.lines {
-        if let Some(prev) = previous_line {
-            if line.line_number > prev + 1 {
-                let gap = "…\n".to_string();
-                offset = insert_styled(buffer, offset, &gap, GAP_TAG);
-                plain.push_str(&gap);
+    for line in &model.lines {
+        match line.style {
+            crate::preview_model::LineStyle::Dim => {
+                let text = format!("{}{}\n", line.number_prefix, line.text);
+                offset = insert_styled(buffer, offset, &text, GAP_TAG);
+                plain.push_str(&text);
             }
-        }
-        previous_line = Some(line.line_number);
+            crate::preview_model::LineStyle::Normal => {
+                offset = insert_styled(buffer, offset, &line.number_prefix, "");
+                plain.push_str(&line.number_prefix);
 
-        let prefix = format!("{:>4} ", line.line_number);
-        offset = insert_styled(buffer, offset, &prefix, "");
-        plain.push_str(&prefix);
+                let mut last_byte = 0;
+                for range in &line.match_ranges {
+                    let start = clamp_char_boundary(&line.text, range.start).max(last_byte);
+                    let end = clamp_char_boundary(&line.text, range.end).max(start);
+                    if start < last_byte {
+                        continue;
+                    }
+                    let unstyled = &line.text[last_byte..start];
+                    offset = insert_styled(buffer, offset, unstyled, "");
+                    plain.push_str(unstyled);
 
-        let text_start = offset;
-        offset = insert_styled(buffer, offset, &line.text, "");
-        offset = insert_styled(buffer, offset, "\n", "");
-        plain.push_str(&line.text);
-        plain.push('\n');
-
-        for m in &line.match_highlights {
-            let char_start = byte_to_char_offset(&line.text, m.start);
-            let char_end = byte_to_char_offset(&line.text, m.end);
-            let start = buffer.iter_at_offset(text_start + char_start as i32);
-            let end = buffer.iter_at_offset(text_start + char_end as i32);
-            buffer.apply_tag_by_name(MATCH_TAG, &start, &end);
+                    let matched = &line.text[start..end];
+                    offset = insert_styled(buffer, offset, matched, MATCH_TAG);
+                    plain.push_str(matched);
+                    last_byte = end;
+                }
+                let tail = &line.text[last_byte..];
+                offset = insert_styled(buffer, offset, tail, "");
+                offset = insert_styled(buffer, offset, "\n", "");
+                plain.push_str(tail);
+                plain.push('\n');
+            }
         }
     }
 
@@ -179,12 +171,11 @@ fn insert_styled(buffer: &TextBuffer, offset: i32, text: &str, tag: &str) -> i32
     end_offset
 }
 
-/// Converts a byte offset within `text` to a character offset,
-/// clamping to the nearest char boundary if the offset is invalid.
-fn byte_to_char_offset(text: &str, byte: usize) -> usize {
+/// Clamps a byte offset to the nearest valid char boundary at or below it.
+fn clamp_char_boundary(text: &str, byte: usize) -> usize {
     let mut b = byte.min(text.len());
     while b > 0 && !text.is_char_boundary(b) {
         b -= 1;
     }
-    text[..b].chars().count()
+    b
 }
