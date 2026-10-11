@@ -18,12 +18,22 @@ use crate::preview::syntax::{Style, SyntaxHighlighter};
 pub struct PreviewConfig {
     /// Maximum file size for preview in bytes.
     pub max_file_size: u64,
+    /// Number of context lines shown above and below each search match.
+    pub context_lines: usize,
+    /// Number of leading lines shown when the query is empty or matches
+    /// no literal substring in the content.
+    pub fallback_lines: usize,
+    /// Hard cap on the total number of lines emitted for one preview.
+    pub max_total_lines: usize,
 }
 
 impl Default for PreviewConfig {
     fn default() -> Self {
         Self {
             max_file_size: 1024 * 1024, // 1 MB
+            context_lines: 3,
+            fallback_lines: 50,
+            max_total_lines: 500,
         }
     }
 }
@@ -120,7 +130,7 @@ impl PreviewService {
             error: None,
             original_size: text.len() as u64,
         };
-        self.apply_search_highlights(&mut output, query);
+        self.finalize_preview(&mut output, query);
         output
     }
 
@@ -131,13 +141,14 @@ impl PreviewService {
     /// and search match highlighting. Results are cached to avoid
     /// redundant file I/O.
     pub fn load_preview(&self, path: &Path, query: &str) -> PreviewOutput {
-        // Check cache first
+        // Check cache first. The cache stores the full, highlight-free
+        // output so each query gets fresh highlights and context filtering.
         {
             let cache = self.cache.lock().unwrap_or_else(|e| e.into_inner());
             if let Some((cached_path, cached_output)) = cache.as_ref() {
                 if cached_path == path && cached_output.error.is_none() {
                     let mut output = cached_output.clone();
-                    self.apply_search_highlights(&mut output, query);
+                    self.finalize_preview(&mut output, query);
                     return output;
                 }
             }
@@ -173,18 +184,32 @@ impl PreviewService {
             };
         }
 
-        let mut output = self.generate_preview(&load_result.content, path, query);
-        output.truncated = load_result.truncated;
-        output.encoding = load_result.encoding;
-        output.original_size = load_result.original_size;
+        // Build the full, highlight-free output and cache it.
+        let mut output = PreviewOutput {
+            path: path.to_path_buf(),
+            lines: self.highlight_content(&load_result.content, path),
+            truncated: load_result.truncated,
+            encoding: load_result.encoding,
+            is_binary: false,
+            error: None,
+            original_size: load_result.original_size,
+        };
 
-        // Update cache
         {
             let mut cache = self.cache.lock().unwrap_or_else(|e| e.into_inner());
             *cache = Some((path.to_path_buf(), output.clone()));
         }
 
+        self.finalize_preview(&mut output, query);
         output
+    }
+
+    /// Applies search highlights and filters lines to the context window.
+    ///
+    /// This is the per-query pass over a full (unhighlighted) line set.
+    fn finalize_preview(&self, output: &mut PreviewOutput, query: &str) {
+        self.apply_search_highlights(output, query);
+        self.filter_to_context(output, query);
     }
 
     /// Highlights file content with syntax highlighting.
@@ -218,6 +243,71 @@ impl PreviewService {
             let matches = highlight::find_matches(&line.text, query);
             line.match_highlights = matches;
         }
+    }
+
+    /// Filters preview lines to a context window around search matches.
+    ///
+    /// With a non-empty query that matches at least one line, keeps only
+    /// matched lines plus [`PreviewConfig::context_lines`] above and below,
+    /// merging overlapping windows and preserving original line numbers.
+    /// When the query is empty or matches nothing literally (e.g. prefix
+    /// or fuzzy index hits), falls back to the first
+    /// [`PreviewConfig::fallback_lines`] lines. The total number of lines
+    /// is capped at [`PreviewConfig::max_total_lines`]. Sets `truncated`
+    /// when lines are dropped.
+    fn filter_to_context(&self, output: &mut PreviewOutput, query: &str) {
+        let total = output.lines.len();
+        if total == 0 {
+            return;
+        }
+
+        let matched: Vec<usize> = output
+            .lines
+            .iter()
+            .enumerate()
+            .filter(|(_, line)| !line.match_highlights.is_empty())
+            .map(|(i, _)| i)
+            .collect();
+
+        let selected: Vec<usize> = if !query.is_empty() && !matched.is_empty() {
+            let ctx = self.config.context_lines;
+            let mut keep = vec![false; total];
+            for &i in &matched {
+                let start = i.saturating_sub(ctx);
+                let end = (i + ctx).min(total - 1);
+                keep[start..=end].fill(true);
+            }
+            keep.iter()
+                .copied()
+                .enumerate()
+                .filter(|&(_, keep)| keep)
+                .map(|(i, _)| i)
+                .collect()
+        } else {
+            // Empty query or no literal match: leading lines only.
+            let limit = self.config.fallback_lines.min(total);
+            (0..limit).collect()
+        };
+
+        let cap = self.config.max_total_lines;
+        let truncated = selected.len() < total || selected.len() > cap;
+        if !truncated {
+            // Already contiguous from line 1 — nothing to filter.
+            return;
+        }
+
+        let mut keep = vec![false; total];
+        for &i in selected.iter().take(cap) {
+            keep[i] = true;
+        }
+        let all = std::mem::take(&mut output.lines);
+        output.lines = all
+            .into_iter()
+            .enumerate()
+            .filter(|(i, _)| keep[*i])
+            .map(|(_, line)| line)
+            .collect();
+        output.truncated = output.truncated || truncated;
     }
 
     /// Clears the preview cache.
@@ -368,6 +458,7 @@ mod tests {
 
         let config = PreviewConfig {
             max_file_size: 1024,
+            ..Default::default()
         };
         let service = PreviewService::new(config);
         let output = service.load_preview(&path, "");
@@ -441,5 +532,150 @@ mod tests {
         let output = service.generate_preview("Hello World", Path::new("test.txt"), "hello");
 
         assert!(!output.lines[0].match_highlights.is_empty());
+    }
+
+    fn multiline_content(n: usize, needle_line: usize, needle: &str) -> String {
+        (1..=n)
+            .map(|i| {
+                if i == needle_line {
+                    format!("line {i} has {needle} inside")
+                } else {
+                    format!("line {i} has nothing")
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    #[test]
+    fn preview_context_window_around_matches() {
+        let content = multiline_content(20, 10, "target");
+        let service = PreviewService::with_default_config();
+        let output = service.generate_preview(&content, Path::new("test.txt"), "target");
+
+        // Match on line 10 ± 3 context → lines 7..=13
+        let numbers: Vec<usize> = output.lines.iter().map(|l| l.line_number).collect();
+        assert_eq!(numbers, (7..=13).collect::<Vec<_>>());
+        assert!(output.truncated);
+        // The matched line keeps its highlight
+        let matched_line = output.lines.iter().find(|l| l.line_number == 10).unwrap();
+        assert!(!matched_line.match_highlights.is_empty());
+        // Context lines have no highlights
+        let context_line = output.lines.iter().find(|l| l.line_number == 7).unwrap();
+        assert!(context_line.match_highlights.is_empty());
+    }
+
+    #[test]
+    fn preview_context_preserves_original_line_numbers() {
+        let content = multiline_content(30, 20, "needle");
+        let service = PreviewService::with_default_config();
+        let output = service.generate_preview(&content, Path::new("test.txt"), "needle");
+
+        assert_eq!(output.lines.first().unwrap().line_number, 17);
+        assert_eq!(output.lines.last().unwrap().line_number, 23);
+        assert_eq!(output.lines.len(), 7);
+    }
+
+    #[test]
+    fn preview_merges_overlapping_windows() {
+        // Same query matches on lines 5 and 9; context 3 gives windows
+        // 2..=7 and 6..=12 which overlap and merge to a contiguous block.
+        let mut lines: Vec<String> = (1..=20).map(|i| format!("line {i}")).collect();
+        lines[4] = "line 5 has alpha here".to_string();
+        lines[8] = "line 9 has alpha here".to_string();
+        let service = PreviewService::with_default_config();
+        let output = service.generate_preview(&lines.join("\n"), Path::new("test.txt"), "alpha");
+
+        let numbers: Vec<usize> = output.lines.iter().map(|l| l.line_number).collect();
+        assert_eq!(numbers, (2..=12).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn preview_empty_query_falls_back_to_leading_lines() {
+        let content = multiline_content(80, 1, "unused");
+        let service = PreviewService::with_default_config();
+        let output = service.generate_preview(&content, Path::new("test.txt"), "");
+
+        assert_eq!(output.lines.len(), 50);
+        assert_eq!(output.lines[0].line_number, 1);
+        assert_eq!(output.lines[49].line_number, 50);
+        assert!(output.truncated);
+    }
+
+    #[test]
+    fn preview_no_literal_match_falls_back_to_leading_lines() {
+        let content = multiline_content(80, 40, "present");
+        let service = PreviewService::with_default_config();
+        // Query is not a literal substring of any line
+        let output = service.generate_preview(&content, Path::new("test.txt"), "absent-query");
+
+        assert_eq!(output.lines.len(), 50);
+        assert!(output.truncated);
+        for line in &output.lines {
+            assert!(line.match_highlights.is_empty());
+        }
+    }
+
+    #[test]
+    fn preview_max_total_lines_cap() {
+        let content = multiline_content(100, 50, "everywhere");
+        let config = PreviewConfig {
+            context_lines: 3,
+            max_total_lines: 5,
+            ..Default::default()
+        };
+        let service = PreviewService::new(config);
+        let output = service.generate_preview(&content, Path::new("test.txt"), "everywhere");
+
+        assert_eq!(output.lines.len(), 5);
+        assert!(output.truncated);
+    }
+
+    #[test]
+    fn preview_small_file_unfiltered_with_empty_query() {
+        let service = PreviewService::with_default_config();
+        let output = service.generate_preview("a\nb\nc", Path::new("test.txt"), "");
+
+        assert_eq!(output.lines.len(), 3);
+        assert!(!output.truncated);
+    }
+
+    #[test]
+    fn cache_reuse_clears_stale_highlights_for_empty_query() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("test.txt");
+        std::fs::write(&path, "Hello world, brave world").unwrap();
+
+        let service = PreviewService::with_default_config();
+        let first = service.load_preview(&path, "world");
+        assert!(!first.lines[0].match_highlights.is_empty());
+
+        // Second call hits the cache with an empty query — highlights
+        // from the cached first query must not leak through.
+        let second = service.load_preview(&path, "");
+        for line in &second.lines {
+            assert!(line.match_highlights.is_empty());
+        }
+    }
+
+    #[test]
+    fn cache_reuse_recomputes_context_per_query() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("test.txt");
+        // Matches on line 3 and line 18 of the same cached file.
+        let mut lines: Vec<String> = (1..=20).map(|i| format!("line {i}")).collect();
+        lines[2] = "line 3 has alpha".to_string();
+        lines[17] = "line 18 has omega".to_string();
+        std::fs::write(&path, lines.join("\n")).unwrap();
+
+        let service = PreviewService::with_default_config();
+        let first = service.load_preview(&path, "alpha");
+        let first_numbers: Vec<usize> = first.lines.iter().map(|l| l.line_number).collect();
+        assert_eq!(first_numbers, (1..=6).collect::<Vec<_>>());
+
+        // Same cached file, query matching a different line — context moves.
+        let second = service.load_preview(&path, "omega");
+        let second_numbers: Vec<usize> = second.lines.iter().map(|l| l.line_number).collect();
+        assert_eq!(second_numbers, (15..=20).collect::<Vec<_>>());
     }
 }

@@ -51,6 +51,44 @@ fn spawn_search(
     });
 }
 
+/// Applies a search response to window state (state mutation only).
+///
+/// `limit == 0` is the error sentinel sent by [`spawn_search`] when the
+/// background search fails; it renders as "Search failed". `per_page` is
+/// deliberately never overwritten from responses — it is a UI/config
+/// preference, and echoing a zeroed error limit back would poison every
+/// subsequent query (leading to a `TopDocs::with_limit(0)` panic).
+pub(crate) fn apply_search_response(
+    st: &mut WindowState,
+    response: glintindex_core::SearchResponse,
+) {
+    let total = response.total;
+    let offset = response.offset;
+    let limit = response.limit;
+
+    st.results = response.results;
+    st.total_results = total;
+    st.preview_text.clear();
+    st.total_pages = if limit == 0 || total == 0 {
+        1
+    } else {
+        total.div_ceil(limit)
+    };
+    st.current_page = offset.checked_div(limit).map(|q| q + 1).unwrap_or(1);
+    st.selected_index = None;
+
+    let count = st.results.len();
+    let start = if st.total_results == 0 { 0 } else { offset + 1 };
+    let end = (offset + count).min(st.total_results);
+    st.status = if limit == 0 {
+        "Search failed".to_string()
+    } else if st.total_results == 0 {
+        "No results found".to_string()
+    } else {
+        format!("Showing {}–{} of {} results", start, end, st.total_results)
+    };
+}
+
 /// Performs a search using the current state and sends results through the channel.
 ///
 /// Used by pagination controls to trigger a search when the page changes.
@@ -136,31 +174,7 @@ pub fn build_toolbar(
                     }
 
                     // Extract fields before moving results into state
-                    let total = response.total;
-                    let offset = response.offset;
-                    let limit = response.limit;
-                    let results = response.results;
-
-                    // Preserve pagination metadata in state
-                    st.results = results;
-                    st.total_results = total;
-                    st.per_page = limit;
-                    st.total_pages = if limit == 0 || total == 0 {
-                        1
-                    } else {
-                        total.div_ceil(limit)
-                    };
-                    st.current_page = offset.checked_div(limit).map(|q| q + 1).unwrap_or(1);
-                    st.selected_index = None;
-
-                    let count = st.results.len();
-                    let start = if st.total_results == 0 { 0 } else { offset + 1 };
-                    let end = (offset + count).min(st.total_results);
-                    st.status = if st.total_results == 0 {
-                        "No results found".to_string()
-                    } else {
-                        format!("Showing {}–{} of {} results", start, end, st.total_results)
-                    };
+                    apply_search_response(&mut st, response);
 
                     results::refresh_results_list(&listbox, &st.results);
 
@@ -211,6 +225,13 @@ pub fn build_toolbar(
                 st.total_pages = 1;
                 st.current_page = 1;
                 st.status = "No results found".to_string();
+                st.preview_text.clear();
+                // The row_selected(None) handler also resets the buffer
+                // when the selected row is removed below; reset here too
+                // so the pane is cleared even if nothing was selected.
+                if let Some(ref buffer) = st.preview_buffer {
+                    super::preview::reset_to_placeholder(buffer);
+                }
                 results::refresh_results_list(&listbox, &st.results);
                 super::status_bar::refresh_status_bar(
                     &st,

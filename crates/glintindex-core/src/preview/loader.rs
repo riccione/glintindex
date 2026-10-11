@@ -149,7 +149,14 @@ fn load_truncated(path: &Path, max_bytes: u64) -> crate::error::Result<LoadResul
         Ok(LoadResult::binary(file_size))
     } else {
         let mut content = result.text;
-        content.push_str("\n\nPreview truncated.\nOnly the first 1 MB is displayed.");
+        let limit_desc = if max_bytes >= 1024 * 1024 {
+            format!("{} MB", max_bytes / (1024 * 1024))
+        } else {
+            format!("{} KB", max_bytes / 1024)
+        };
+        content.push_str(&format!(
+            "\n\nPreview truncated.\nOnly the first {limit_desc} is displayed."
+        ));
         Ok(LoadResult::truncated(content, result.encoding, file_size))
     }
 }

@@ -1,6 +1,6 @@
 //! Results list UI component.
 //!
-//! Displays search results as a scrollable list with file names and paths.
+//! Displays search results as a scrollable list with file names.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -54,25 +54,20 @@ pub fn refresh_results_list(listbox: &ListBox, results: &[glintindex_core::Searc
 }
 
 /// Creates a single result row widget.
-#[allow(dead_code)]
+///
+/// Shows only the file name; the full path is displayed in the
+/// preview pane header instead (a long path makes the narrow
+/// results list unusable when resized).
 pub fn create_result_row(result: &glintindex_core::SearchResult) -> GtkBox {
     let filename = result.document.filename().to_string();
-    let path = result.document.path.display().to_string();
 
     let filename_label = Label::builder()
         .label(&filename)
         .halign(gtk::Align::Start)
         .build();
 
-    let path_label = Label::builder()
-        .label(&path)
-        .halign(gtk::Align::Start)
-        .css_classes(["dim-label", "caption"])
-        .build();
-
     let row_content = GtkBox::new(Orientation::Vertical, 2);
     row_content.append(&filename_label);
-    row_content.append(&path_label);
 
     row_content
 }

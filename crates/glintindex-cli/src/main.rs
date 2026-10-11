@@ -1,5 +1,6 @@
 mod cli;
 mod commands;
+mod highlight;
 mod progress;
 
 fn main() {

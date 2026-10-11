@@ -86,7 +86,8 @@ impl GlintIndexWindow {
 
         let theme = service.config().theme;
         let font_size = service.config().clamped_font_size();
-        let per_page = service.config().pagination.default_page_size;
+        let per_page = service.config().pagination.default_page_size.max(1);
+        let preview_context_lines = service.config().clamped_preview_context_lines();
 
         let statistics = service.statistics().ok();
 
@@ -94,7 +95,10 @@ impl GlintIndexWindow {
         let (search_tx, search_rx) = mpsc::channel::<(u64, glintindex_core::SearchResponse)>();
 
         let state = Rc::new(RefCell::new(WindowState {
-            preview_service: PreviewService::with_default_config(),
+            preview_service: PreviewService::new(glintindex_core::PreviewConfig {
+                context_lines: preview_context_lines,
+                ..Default::default()
+            }),
             service,
             query: String::new(),
             results: Vec::new(),
@@ -130,10 +134,11 @@ impl GlintIndexWindow {
         // Preview pane (right pane)
         let (preview_widget, preview_buffer) = ui::preview::build_with_buffer();
 
-        // Store the preview buffer reference in state
+        // Store the preview buffer reference in state (keep a local
+        // handle for the selection handler below)
         {
             let mut st = state.borrow_mut();
-            st.preview_buffer = Some(preview_buffer);
+            st.preview_buffer = Some(preview_buffer.clone());
         }
 
         // Action bar for selected result
@@ -171,6 +176,10 @@ impl GlintIndexWindow {
             let open_btn_clone = open_btn.clone();
             let open_folder_btn_clone = open_folder_btn.clone();
             let copy_path_btn_clone = copy_path_btn.clone();
+            // Cloned so the None branch can reset the preview without
+            // borrowing state — GTK emits row_selected(None) while the
+            // toolbar still holds a borrow_mut() during list refresh.
+            let preview_buffer_clone = preview_buffer.clone();
             results_listbox.connect_row_selected(move |_listbox, row| {
                 if let Some(row) = row {
                     let index = row.index() as usize;
@@ -219,18 +228,23 @@ impl GlintIndexWindow {
                         } else {
                             st.preview_service.load_preview(&path, &st.query)
                         };
-                        st.preview_text = format_preview_content(&output);
-
-                        // Update the actual TextBuffer so the preview pane shows content
-                        if let Some(ref buffer) = st.preview_buffer {
-                            buffer.set_text(&st.preview_text);
-                        }
+                        // Render into the TextBuffer with match highlights
+                        // and gap markers between context blocks.
+                        let text = if let Some(ref buffer) = st.preview_buffer {
+                            ui::preview::populate_preview_buffer(buffer, &output)
+                        } else {
+                            String::new()
+                        };
+                        st.preview_text = text;
                     }
                 } else {
-                    // No selection — disable all buttons
+                    // No selection — disable all buttons and restore the
+                    // preview placeholder so a cleared/changed query never
+                    // leaves the previous document on screen.
                     open_btn_clone.set_sensitive(false);
                     open_folder_btn_clone.set_sensitive(false);
                     copy_path_btn_clone.set_sensitive(false);
+                    ui::preview::reset_to_placeholder(&preview_buffer_clone);
                 }
             });
         }
@@ -546,26 +560,4 @@ fn schedule_startup_job_watcher(state: &Rc<RefCell<WindowState>>) {
             }
         }
     });
-}
-
-/// Formats preview output into displayable text.
-pub fn format_preview_content(output: &glintindex_core::PreviewOutput) -> String {
-    let mut content = String::new();
-
-    if output.truncated {
-        content.push_str(&format!(
-            "// File truncated (showing first {} bytes)\n",
-            output.lines.len() * 50
-        ));
-    }
-
-    if output.encoding != glintindex_core::Encoding::Utf8 {
-        content.push_str(&format!("// Encoding: {:?}\n", output.encoding));
-    }
-
-    for line in &output.lines {
-        content.push_str(&format!("{:>4} {}\n", line.line_number, line.text));
-    }
-
-    content
 }

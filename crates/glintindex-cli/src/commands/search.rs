@@ -50,6 +50,11 @@ pub fn execute(config_path: &str, args: SearchArgs) -> Result<()> {
     );
     println!("{}", "─".repeat(80));
 
+    // Highlight matches only when writing to a terminal and the user
+    // has not opted out via NO_COLOR.
+    let use_color = std::io::IsTerminal::is_terminal(&std::io::stdout())
+        && std::env::var_os("NO_COLOR").is_none();
+
     for (i, result) in response.results.iter().enumerate() {
         println!("{}. {}", start + i, result.document.filename());
         println!();
@@ -57,10 +62,9 @@ pub fn execute(config_path: &str, args: SearchArgs) -> Result<()> {
 
         if !result.snippet.is_empty() {
             println!();
-            // Strip HTML tags from snippet for plain text output
-            let plain_snippet = strip_html_tags(&result.snippet);
-            if !plain_snippet.is_empty() {
-                println!("{}", plain_snippet);
+            let rendered = crate::highlight::highlight_snippet(&result.snippet, use_color);
+            if !rendered.is_empty() {
+                println!("{}", rendered);
             }
         }
 
@@ -70,43 +74,4 @@ pub fn execute(config_path: &str, args: SearchArgs) -> Result<()> {
     }
 
     Ok(())
-}
-
-fn strip_html_tags(html: &str) -> String {
-    let mut result = String::with_capacity(html.len());
-    let mut in_tag = false;
-
-    for c in html.chars() {
-        match c {
-            '<' => in_tag = true,
-            '>' => in_tag = false,
-            _ if !in_tag => result.push(c),
-            _ => {}
-        }
-    }
-
-    result.trim().to_string()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn strip_html_tags_removes_tags() {
-        let html = "<em>hello</em> world";
-        assert_eq!(strip_html_tags(html), "hello world");
-    }
-
-    #[test]
-    fn strip_html_tags_plain_text() {
-        let text = "no tags here";
-        assert_eq!(strip_html_tags(text), "no tags here");
-    }
-
-    #[test]
-    fn strip_html_tags_nested() {
-        let html = "<p><strong>test</strong></p>";
-        assert_eq!(strip_html_tags(html), "test");
-    }
 }

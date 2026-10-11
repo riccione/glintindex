@@ -33,6 +33,14 @@ pub struct AppConfig {
     pub theme: Theme,
     /// Maximum number of characters in a preview snippet.
     pub max_preview_size: usize,
+    /// Number of context lines shown above and below each search match
+    /// in the preview pane.
+    ///
+    /// When the query is empty or matches no literal substring, the
+    /// preview falls back to the leading lines of the file instead.
+    /// Default: 3.
+    #[serde(default = "default_preview_context_lines")]
+    pub preview_context_lines: usize,
     /// Recent search queries, newest first.
     #[serde(default)]
     pub recent_searches: Vec<String>,
@@ -78,6 +86,11 @@ pub struct AppConfig {
 /// Returns the default font size for deserialization.
 fn default_font_size() -> u32 {
     12
+}
+
+/// Returns the default preview context line count for deserialization.
+fn default_preview_context_lines() -> usize {
+    3
 }
 
 /// Returns the default main split ratio for deserialization.
@@ -210,6 +223,7 @@ impl Default for AppConfig {
             index_directory: defaults::default_index_directory(),
             theme: Theme::default(),
             max_preview_size: defaults::default_max_preview_size(),
+            preview_context_lines: default_preview_context_lines(),
             recent_searches: Vec::new(),
             font_size: default_font_size(),
             main_split_ratio: default_main_split_ratio(),
@@ -262,6 +276,11 @@ impl AppConfig {
     pub fn main_split_ratio_f32(&self) -> f32 {
         (self.main_split_ratio as f32 / 100.0).clamp(0.15, 0.85)
     }
+
+    /// Returns the preview context line count, clamped to [0, 50].
+    pub fn clamped_preview_context_lines(&self) -> usize {
+        self.preview_context_lines.clamp(0, 50)
+    }
 }
 
 #[cfg(test)]
@@ -274,6 +293,7 @@ mod tests {
         assert!(config.indexed_folders.is_empty());
         assert!(!config.ignored_folders.is_empty());
         assert_eq!(config.max_preview_size, 200);
+        assert_eq!(config.preview_context_lines, 3);
         assert_eq!(config.theme, Theme::System);
         assert!(config.recent_searches.is_empty());
         assert_eq!(config.font_size, 12);
@@ -397,6 +417,45 @@ max_preview_size = 200
 "#;
         let config: AppConfig = toml::from_str(toml).unwrap();
         assert!(config.index_on_startup);
+    }
+
+    #[test]
+    fn deserialize_missing_preview_context_lines_defaults_three() {
+        let toml = r#"
+indexed_folders = []
+ignored_folders = []
+index_directory = "/tmp/test"
+theme = "system"
+max_preview_size = 200
+"#;
+        let config: AppConfig = toml::from_str(toml).unwrap();
+        assert_eq!(config.preview_context_lines, 3);
+    }
+
+    #[test]
+    fn deserialize_custom_preview_context_lines() {
+        let toml = r#"
+indexed_folders = []
+ignored_folders = []
+index_directory = "/tmp/test"
+theme = "system"
+max_preview_size = 200
+preview_context_lines = 10
+"#;
+        let config: AppConfig = toml::from_str(toml).unwrap();
+        assert_eq!(config.preview_context_lines, 10);
+        assert_eq!(config.clamped_preview_context_lines(), 10);
+    }
+
+    #[test]
+    fn preview_context_lines_roundtrip_serde() {
+        let config = AppConfig {
+            preview_context_lines: 7,
+            ..Default::default()
+        };
+        let toml_str = toml::to_string(&config).unwrap();
+        let restored: AppConfig = toml::from_str(&toml_str).unwrap();
+        assert_eq!(config.preview_context_lines, restored.preview_context_lines);
     }
 
     #[test]
