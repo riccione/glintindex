@@ -16,6 +16,15 @@ use super::mapper::{document_to_tantivy, tantivy_to_search_result};
 use super::schema::{IndexFields, create_schema};
 use super::statistics::IndexStatistics;
 
+/// Minimum token length for distance-1 typo tolerance.
+///
+/// Short tokens (3–4 chars) use pure starts-with matching only: one edit
+/// is a large fraction of such a word, so distance-1 fuzzy matches drag
+/// in unrelated neighbors (e.g. "sals" matching "sale", "salt", "sass").
+/// Tokens of this length or more keep full distance-1 prefix + whole-word
+/// fuzzy matching (e.g. "progamming" → "programming").
+const FUZZY_MIN_TOKEN_LEN: usize = 5;
+
 /// The default number of writer heap bytes (50 MB).
 const DEFAULT_WRITER_HEAP: usize = 50_000_000;
 
@@ -353,6 +362,10 @@ impl IndexService {
     /// and adding a fuzzy prefix would only drag in unrelated neighbors
     /// (e.g. "salsa" matching "balsa"/"sale").
     ///
+    /// Typo tolerance is length-scaled ([`FUZZY_MIN_TOKEN_LEN`]): tokens
+    /// shorter than the threshold use a pure starts-with prefix (distance
+    /// 0); longer tokens keep distance 1.
+    ///
     /// Tokens shorter than 3 characters only get exact-match queries
     /// to avoid overly broad results.
     fn build_prefix_query(
@@ -368,15 +381,21 @@ impl IndexService {
                 continue;
             }
 
+            let distance: u8 = if normalized.len() >= FUZZY_MIN_TOKEN_LEN {
+                1
+            } else {
+                0
+            };
+
             if !self.term_exists(searcher, self.fields.filename, &normalized) {
                 let filename_term = Term::from_field_text(self.fields.filename, &normalized);
-                let filename_prefix = FuzzyTermQuery::new_prefix(filename_term, 1, true);
+                let filename_prefix = FuzzyTermQuery::new_prefix(filename_term, distance, true);
                 sub_queries.push((Occur::Should, Box::new(filename_prefix)));
             }
 
             if !self.term_exists(searcher, self.fields.content, &normalized) {
                 let content_term = Term::from_field_text(self.fields.content, &normalized);
-                let content_prefix = FuzzyTermQuery::new_prefix(content_term, 1, true);
+                let content_prefix = FuzzyTermQuery::new_prefix(content_term, distance, true);
                 sub_queries.push((Occur::Should, Box::new(content_prefix)));
             }
         }
@@ -400,7 +419,9 @@ impl IndexService {
     /// like "salsa" returns every document containing a distance-1
     /// neighbor ("balsa", "sale", …) alongside the real hit.
     ///
-    /// Tokens shorter than 3 characters are skipped to avoid overly broad results.
+    /// Only tokens of [`FUZZY_MIN_TOKEN_LEN`] characters or more get
+    /// whole-word fuzzy matching — distance 1 on a 3–4 char token
+    /// matches too many unrelated words (e.g. "sals" → "sale", "salt").
     fn build_fuzzy_query(
         &self,
         searcher: &Searcher,
@@ -410,7 +431,7 @@ impl IndexService {
 
         for term_str in query.split_whitespace() {
             let normalized = term_str.to_lowercase();
-            if normalized.len() < 3 {
+            if normalized.len() < FUZZY_MIN_TOKEN_LEN {
                 continue;
             }
 
@@ -1032,5 +1053,45 @@ mod tests {
             filenames.contains(&"recipe.txt"),
             "missing token 'recip' should still prefix-match 'recipe'"
         );
+    }
+
+    #[test]
+    fn short_prefix_stays_exact() {
+        let (service, _tmp) = temp_index_service();
+        let doc1 = sample_document("mexican.txt", "salsa recipe with tomatoes");
+        let doc2 = sample_document("craft.txt", "balsa wood model airplane");
+        let doc3 = sample_document("shopping.txt", "sale and salted snacks");
+        service.add_document(&doc1).unwrap();
+        service.add_document(&doc2).unwrap();
+        service.add_document(&doc3).unwrap();
+        service.commit().unwrap();
+
+        // While typing "sals", only true starts-with matches count:
+        // "salsa" yes; "balsa" (infix), "sale"/"salt" (distance-1
+        // neighbors) no.
+        let response = service.search(&SearchQuery::new("sals")).unwrap();
+        assert_eq!(
+            response.results.len(),
+            1,
+            "short prefixes must not pull in distance-1 fuzzy neighbors"
+        );
+        assert_eq!(response.total, 1);
+        assert_eq!(response.results[0].document.filename(), "mexican.txt");
+    }
+
+    #[test]
+    fn short_typing_prefix_still_finds_longer_tokens() {
+        let (service, _tmp) = temp_index_service();
+        let doc1 = sample_document("mexican.txt", "salsa recipe with tomatoes");
+        let doc2 = sample_document("notes.txt", "sergei report invoice");
+        service.add_document(&doc1).unwrap();
+        service.add_document(&doc2).unwrap();
+        service.commit().unwrap();
+
+        // As-you-type prefix matching must keep working: "sal" finds
+        // "salsa" via a pure starts-with clause.
+        let response = service.search(&SearchQuery::new("sal")).unwrap();
+        assert_eq!(response.results.len(), 1);
+        assert_eq!(response.results[0].document.filename(), "mexican.txt");
     }
 }
