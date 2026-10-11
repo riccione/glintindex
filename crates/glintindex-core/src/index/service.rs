@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 use tantivy::collector::{Count, TopDocs};
 use tantivy::query::{BooleanQuery, FuzzyTermQuery, Occur, QueryParser};
 use tantivy::tokenizer::{LowerCaser, RemoveLongFilter, SimpleTokenizer, TextAnalyzer};
-use tantivy::{Index, IndexReader, IndexWriter, ReloadPolicy, Term};
+use tantivy::{Index, IndexReader, IndexWriter, ReloadPolicy, Searcher, Term};
 
 use crate::error::{GlintIndexError, Result};
 use crate::metadata::{FileMetadata, Repository};
@@ -264,11 +264,12 @@ impl IndexService {
             .parse_query(&query.query)
             .map_err(|e| GlintIndexError::Search(format!("failed to parse query: {e}")))?;
 
-        // Build prefix queries for tokens >= 3 characters.
-        let prefix_query = self.build_prefix_query(&query.query);
+        // Build prefix queries for tokens >= 3 characters that are
+        // absent from the index (typo tolerance only where needed).
+        let prefix_query = self.build_prefix_query(&searcher, &query.query);
 
-        // Build fuzzy queries for typo-tolerant matching.
-        let fuzzy_query = self.build_fuzzy_query(&query.query);
+        // Build fuzzy queries for the same absent tokens.
+        let fuzzy_query = self.build_fuzzy_query(&searcher, &query.query);
 
         // Combine standard, prefix, and fuzzy queries
         let combined_query: Box<dyn tantivy::query::Query> = {
@@ -321,6 +322,25 @@ impl IndexService {
         ))
     }
 
+    /// Returns `true` if the lowercased token exists verbatim in the
+    /// given field's inverted index (any segment).
+    ///
+    /// Used to gate typo-tolerance: a token that already matches the
+    /// index exactly must not also pull in distance-1 neighbors.
+    fn term_exists(&self, searcher: &Searcher, field: tantivy::schema::Field, token: &str) -> bool {
+        searcher.segment_readers().iter().any(|segment| {
+            segment
+                .inverted_index(field)
+                .map(|inv| {
+                    inv.terms()
+                        .get(token.as_bytes())
+                        .map(|info| info.is_some())
+                        .unwrap_or(false)
+                })
+                .unwrap_or(false)
+        })
+    }
+
     /// Builds prefix queries for search tokens with length >= 3.
     ///
     /// For each token in the query that is at least 3 characters long
@@ -328,9 +348,18 @@ impl IndexService {
     /// `FuzzyTermQuery::new_prefix` with distance 1. This performs
     /// a typo-tolerant prefix match against the inverted index's FST.
     ///
+    /// A (token, field) pair is skipped when the token already exists
+    /// verbatim in that field — the standard query can match it exactly,
+    /// and adding a fuzzy prefix would only drag in unrelated neighbors
+    /// (e.g. "salsa" matching "balsa"/"sale").
+    ///
     /// Tokens shorter than 3 characters only get exact-match queries
     /// to avoid overly broad results.
-    fn build_prefix_query(&self, query: &str) -> Option<Box<dyn tantivy::query::Query>> {
+    fn build_prefix_query(
+        &self,
+        searcher: &Searcher,
+        query: &str,
+    ) -> Option<Box<dyn tantivy::query::Query>> {
         let mut sub_queries: Vec<(Occur, Box<dyn tantivy::query::Query>)> = Vec::new();
 
         for term_str in query.split_whitespace() {
@@ -339,14 +368,17 @@ impl IndexService {
                 continue;
             }
 
-            let filename_term = Term::from_field_text(self.fields.filename, &normalized);
-            let content_term = Term::from_field_text(self.fields.content, &normalized);
+            if !self.term_exists(searcher, self.fields.filename, &normalized) {
+                let filename_term = Term::from_field_text(self.fields.filename, &normalized);
+                let filename_prefix = FuzzyTermQuery::new_prefix(filename_term, 1, true);
+                sub_queries.push((Occur::Should, Box::new(filename_prefix)));
+            }
 
-            let filename_prefix = FuzzyTermQuery::new_prefix(filename_term, 1, true);
-            let content_prefix = FuzzyTermQuery::new_prefix(content_term, 1, true);
-
-            sub_queries.push((Occur::Should, Box::new(filename_prefix)));
-            sub_queries.push((Occur::Should, Box::new(content_prefix)));
+            if !self.term_exists(searcher, self.fields.content, &normalized) {
+                let content_term = Term::from_field_text(self.fields.content, &normalized);
+                let content_prefix = FuzzyTermQuery::new_prefix(content_term, 1, true);
+                sub_queries.push((Occur::Should, Box::new(content_prefix)));
+            }
         }
 
         if sub_queries.is_empty() {
@@ -362,8 +394,18 @@ impl IndexService {
     /// `FuzzyTermQuery` with Damerau-Levenshtein distance 1.
     /// This catches single-character typos (e.g. "progamming" → "programming").
     ///
+    /// A (token, field) pair is skipped when the token already exists
+    /// verbatim in that field — fuzzy matches are a fallback for typos,
+    /// not a supplement to exact matches. Without this gating, a query
+    /// like "salsa" returns every document containing a distance-1
+    /// neighbor ("balsa", "sale", …) alongside the real hit.
+    ///
     /// Tokens shorter than 3 characters are skipped to avoid overly broad results.
-    fn build_fuzzy_query(&self, query: &str) -> Option<Box<dyn tantivy::query::Query>> {
+    fn build_fuzzy_query(
+        &self,
+        searcher: &Searcher,
+        query: &str,
+    ) -> Option<Box<dyn tantivy::query::Query>> {
         let mut sub_queries: Vec<(Occur, Box<dyn tantivy::query::Query>)> = Vec::new();
 
         for term_str in query.split_whitespace() {
@@ -372,17 +414,21 @@ impl IndexService {
                 continue;
             }
 
-            let filename_term = Term::from_field_text(self.fields.filename, &normalized);
-            let content_term = Term::from_field_text(self.fields.content, &normalized);
+            if !self.term_exists(searcher, self.fields.filename, &normalized) {
+                let filename_term = Term::from_field_text(self.fields.filename, &normalized);
+                sub_queries.push((
+                    Occur::Should,
+                    Box::new(FuzzyTermQuery::new(filename_term, 1, true)),
+                ));
+            }
 
-            sub_queries.push((
-                Occur::Should,
-                Box::new(FuzzyTermQuery::new(filename_term, 1, true)),
-            ));
-            sub_queries.push((
-                Occur::Should,
-                Box::new(FuzzyTermQuery::new(content_term, 1, true)),
-            ));
+            if !self.term_exists(searcher, self.fields.content, &normalized) {
+                let content_term = Term::from_field_text(self.fields.content, &normalized);
+                sub_queries.push((
+                    Occur::Should,
+                    Box::new(FuzzyTermQuery::new(content_term, 1, true)),
+                ));
+            }
         }
 
         if sub_queries.is_empty() {
@@ -920,5 +966,71 @@ mod tests {
         // "progamming" should find "programming" via fuzzy
         let response = service.search(&SearchQuery::new("progamming")).unwrap();
         assert!(!response.results.is_empty());
+    }
+
+    #[test]
+    fn fuzzy_suppressed_when_exact_term_exists() {
+        let (service, _tmp) = temp_index_service();
+        // "salsa" plus distance-1 neighbors that previously matched
+        // via the whole-word fuzzy query.
+        let doc1 = sample_document("mexican.txt", "salsa recipe with tomatoes");
+        let doc2 = sample_document("craft.txt", "balsa wood model airplane");
+        let doc3 = sample_document("shopping.txt", "summer sale and discounts");
+        service.add_document(&doc1).unwrap();
+        service.add_document(&doc2).unwrap();
+        service.add_document(&doc3).unwrap();
+        service.commit().unwrap();
+
+        let response = service.search(&SearchQuery::new("salsa")).unwrap();
+        assert_eq!(
+            response.results.len(),
+            1,
+            "exact match must not be supplemented by fuzzy neighbors"
+        );
+        assert_eq!(response.total, 1, "total must not count fuzzy neighbors");
+        assert_eq!(response.results[0].document.filename(), "mexican.txt");
+    }
+
+    #[test]
+    fn prefix_suppressed_when_exact_term_exists() {
+        let (service, _tmp) = temp_index_service();
+        // doc2's content has "readmefiles" — a distance-0 prefix of
+        // "readme" that the fuzzy prefix query used to match.
+        let doc1 = sample_document("notes.txt", "readme contents here");
+        let doc2 = sample_document("extra.txt", "readmefiles documentation");
+        service.add_document(&doc1).unwrap();
+        service.add_document(&doc2).unwrap();
+        service.commit().unwrap();
+
+        // "readme" exists exactly in the content field — the fuzzy
+        // prefix must not also pull in "readmefiles".
+        let response = service.search(&SearchQuery::new("readme")).unwrap();
+        assert_eq!(response.results.len(), 1);
+        assert_eq!(response.results[0].document.filename(), "notes.txt");
+    }
+
+    #[test]
+    fn fuzzy_applies_only_to_missing_tokens() {
+        let (service, _tmp) = temp_index_service();
+        let doc1 = sample_document("salsa.txt", "salsa ingredient list");
+        let doc2 = sample_document("recipe.txt", "recipe instructions");
+        service.add_document(&doc1).unwrap();
+        service.add_document(&doc2).unwrap();
+        service.commit().unwrap();
+
+        // "salsa" exists exactly (gated); "recip" is absent, so its
+        // prefix query still reaches "recipe" — typo tolerance is
+        // preserved per token.
+        let response = service.search(&SearchQuery::new("salsa recip")).unwrap();
+        let filenames: Vec<&str> = response
+            .results
+            .iter()
+            .map(|r| r.document.filename())
+            .collect();
+        assert!(filenames.contains(&"salsa.txt"));
+        assert!(
+            filenames.contains(&"recipe.txt"),
+            "missing token 'recip' should still prefix-match 'recipe'"
+        );
     }
 }
