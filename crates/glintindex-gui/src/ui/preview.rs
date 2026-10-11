@@ -95,10 +95,11 @@ fn create_preview_tags(buffer: &TextBuffer) {
 
 /// Populates the text buffer from preview output.
 ///
-/// Renders line numbers and text, applies the `match-highlight` tag over
-/// each search match (byte offsets converted to character offsets for
-/// `TextBuffer`), inserts dim `…` gap markers between non-contiguous
-/// line blocks, and dim header lines for truncation/encoding notices.
+/// Renders a dim `// File path: …` header, then line numbers and text,
+/// applies the `match-highlight` tag over each search match (byte offsets
+/// converted to character offsets for `TextBuffer`), inserts dim `…` gap
+/// markers between non-contiguous line blocks, and dim header lines for
+/// truncation/encoding notices.
 /// Returns the plain-text rendering of the buffer content.
 pub fn populate_preview_buffer(
     buffer: &TextBuffer,
@@ -109,6 +110,12 @@ pub fn populate_preview_buffer(
 
     let mut plain = String::new();
     let mut offset: i32 = 0;
+
+    // Full file path header — the results list shows only the file
+    // name, so the path lives here as a dimmed `//` comment.
+    let path_header = format!("// File path: {}\n", output.path.display());
+    offset = insert_styled(buffer, offset, &path_header, GAP_TAG);
+    plain.push_str(&path_header);
 
     if output.truncated {
         let header = format!(

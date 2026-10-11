@@ -225,7 +225,10 @@ fn test_preview_format_output_basic() {
 
     let (_widget, buffer) = crate::ui::preview::build_with_buffer();
     let plain = crate::ui::preview::populate_preview_buffer(&buffer, &output);
-    assert!(plain.is_empty(), "empty output should render empty text");
+    assert_eq!(
+        plain, "// File path: /test/file.txt\n",
+        "empty output should render only the path header"
+    );
 }
 
 fn sample_line(
@@ -299,21 +302,21 @@ fn test_populate_applies_match_highlight_tag() {
 
     // Line text "hello world"; match "world" at byte offsets 6..11.
     let output = sample_output(vec![sample_line(1, "hello world", vec![(6, 11, "world")])]);
-    crate::ui::preview::populate_preview_buffer(&buffer, &output);
+    let plain = crate::ui::preview::populate_preview_buffer(&buffer, &output);
 
-    let text = buffer_text(&buffer);
-    assert!(text.contains("hello world"));
+    assert!(plain.contains("hello world"));
     let match_tag = buffer
         .tag_table()
         .lookup(crate::ui::preview::MATCH_TAG)
         .expect("match tag registered");
 
-    // Prefix "   1 " is 5 chars; "world" occupies chars 11..16 (0-based,
-    // end-exclusive — 'd' is at char 15).
-    let start_of_match = buffer.iter_at_offset(11);
-    let last_match_char = buffer.iter_at_offset(15);
-    let after_match = buffer.iter_at_offset(16);
-    let before_match = buffer.iter_at_offset(10);
+    // Locate "world" dynamically — a `// File path:` header precedes
+    // the content, so absolute buffer offsets are not stable.
+    let world_at = plain.find("world").expect("match text present") as i32;
+    let start_of_match = buffer.iter_at_offset(world_at);
+    let last_match_char = buffer.iter_at_offset(world_at + 4);
+    let after_match = buffer.iter_at_offset(world_at + 5);
+    let before_match = buffer.iter_at_offset(world_at - 1);
     assert!(
         start_of_match.has_tag(&match_tag),
         "first match char tagged"
@@ -339,22 +342,23 @@ fn test_populate_converts_multibyte_byte_offsets_to_chars() {
 
     // "héllo wörld": "wörld" starts at byte 7 but char 6 (é is 2 bytes).
     let output = sample_output(vec![sample_line(1, "héllo wörld", vec![(7, 13, "wörld")])]);
-    crate::ui::preview::populate_preview_buffer(&buffer, &output);
+    let plain = crate::ui::preview::populate_preview_buffer(&buffer, &output);
 
     let match_tag = buffer
         .tag_table()
         .lookup(crate::ui::preview::MATCH_TAG)
         .expect("match tag registered");
 
-    // Prefix "   1 " = 5 chars; "wörld" is chars 11..16.
-    let start_of_match = buffer.iter_at_offset(11);
+    // Locate "wörld" dynamically (the path header precedes content).
+    let w_at = plain.find("wörld").expect("match text present") as i32;
+    let start_of_match = buffer.iter_at_offset(w_at);
     assert!(
         start_of_match.has_tag(&match_tag),
         "multibyte match start tagged at char offset"
     );
-    // Byte-offset-as-char-offset (12) would start one char late — verify
+    // Byte-offset-as-char-offset would start one char late — verify
     // the actual first char of "wörld" is tagged, not its second char.
-    let second_char = buffer.iter_at_offset(12);
+    let second_char = buffer.iter_at_offset(w_at + 1);
     assert!(second_char.has_tag(&match_tag));
 }
 
@@ -370,4 +374,26 @@ fn test_populate_shows_truncation_header() {
 
     assert!(plain.contains("truncated"), "truncation header shown");
     assert!(plain.contains("12345"), "original size shown");
+}
+
+#[gtk::test]
+fn test_populate_path_header_precedes_content_and_truncation() {
+    let _ = gtk::init();
+    let (_widget, buffer) = crate::ui::preview::build_with_buffer();
+
+    let mut output = sample_output(vec![sample_line(1, "content", vec![])]);
+    output.truncated = true;
+    output.original_size = 42;
+    let plain = crate::ui::preview::populate_preview_buffer(&buffer, &output);
+
+    assert!(
+        plain.starts_with("// File path: /test/file.txt\n"),
+        "path header is the first line"
+    );
+    let truncated_at = plain.find("// Preview truncated").unwrap();
+    let content_at = plain.find("   1 content").unwrap();
+    assert!(
+        plain.len() > "// File path: /test/file.txt\n".len() && truncated_at < content_at,
+        "truncation notice between path header and content"
+    );
 }
