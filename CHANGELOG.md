@@ -1,3 +1,25 @@
+## [0.4.1] - 2026-10-11
+
+### Bug Fixes
+
+- *(gui)* Clear stale startup indexing status when job completes
+- *(core,gui)* Prevent zero search limit from failing queries and poisoning pagination
+- *(gui)* Clear preview when search input is emptied or query changes
+- *(core)* Apply fuzzy/prefix search only to tokens absent from the index
+- *(core)* Scale fuzzy distance by token length to stop short-prefix noise
+
+### Features
+
+- *(core)* Remove deleted files during index scan
+- Index on startup (configurable, default on)
+- *(core)* Limit preview to context lines around search matches
+- *(gui)* Render match highlights and line gaps in preview
+- *(cli)* Highlight matching terms in search results
+- *(gui)* Move file path from results list to preview header
+
+### Miscellaneous Tasks
+
+- Release glintindex version 0.4.1
 ## [0.4.0] - 2026-08-28
 
 ### Bug Fixes
@@ -48,6 +70,7 @@
 - Add fuzz workspace and exclude from main workspace
 - Exclude fuzz artifacts from git
 - *(ci)* Pin github actions to full commit SHAs
+- *(release)* Prepare v0.4.0
 
 ### Other
 
