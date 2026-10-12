@@ -57,3 +57,22 @@ pub fn run_ui(app: &mut GlintApp, n: usize) {
 pub fn test_context() -> egui::Context {
     egui::Context::default()
 }
+
+/// Drains the background preview channel until the current selection's
+/// model arrives (or a 2 s timeout elapses).
+///
+/// Selecting a result is asynchronous; tests that assert on the
+/// finished model must wait for the worker response first.
+pub fn wait_for_preview(app: &mut GlintApp) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    loop {
+        app.drain_preview_channel();
+        if !app.preview_loading {
+            break;
+        }
+        if std::time::Instant::now() >= deadline {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(2));
+    }
+}

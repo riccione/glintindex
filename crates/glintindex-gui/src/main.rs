@@ -8,6 +8,7 @@
 
 mod app;
 mod file_actions;
+mod preview_job;
 mod preview_model;
 mod search;
 mod theme;

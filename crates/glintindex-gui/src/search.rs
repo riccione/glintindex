@@ -80,7 +80,7 @@ pub(crate) fn apply_search_response(app: &mut GlintApp, response: glintindex_cor
 
     app.results = response.results;
     app.total_results = total;
-    app.preview_model = None;
+    app.invalidate_preview();
     app.selected_path = None;
     app.total_pages = if limit == 0 || total == 0 {
         1
@@ -176,7 +176,7 @@ impl GlintApp {
         self.results.clear();
         self.selected_index = None;
         self.selected_path = None;
-        self.preview_model = None;
+        self.invalidate_preview();
         self.total_results = 0;
         self.total_pages = 1;
         self.current_page = 1;

@@ -19,6 +19,8 @@ use crate::theme::MATCH_BACKGROUND;
 
 /// Placeholder shown when nothing is selected.
 pub const PLACEHOLDER_TEXT: &str = "Select a file to preview";
+/// Placeholder shown while a background preview generation is running.
+pub const LOADING_TEXT: &str = "Loading preview…";
 
 /// Draws the preview panel (action bar + scrollable preview).
 pub fn show(app: &mut GlintApp, ui: &mut egui::Ui) {
@@ -76,7 +78,11 @@ pub fn show(app: &mut GlintApp, ui: &mut egui::Ui) {
                 }
                 None => {
                     ui.centered_and_justified(|ui| {
-                        ui.weak(PLACEHOLDER_TEXT);
+                        if app.preview_loading {
+                            ui.weak(LOADING_TEXT);
+                        } else {
+                            ui.weak(PLACEHOLDER_TEXT);
+                        }
                     });
                 }
             });

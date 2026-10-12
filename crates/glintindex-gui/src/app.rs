@@ -92,6 +92,15 @@ pub struct GlintApp {
     pub selected_index: Option<usize>,
     pub selected_path: Option<PathBuf>,
     pub preview_model: Option<PreviewModel>,
+    /// Background preview generation channel (see [`crate::preview_job`]).
+    pub preview_rx: Option<mpsc::Receiver<(u64, PreviewModel)>>,
+    pub preview_tx: Option<mpsc::Sender<(u64, PreviewModel)>>,
+    /// Id of the selection owning the preview; workers tag responses
+    /// with it so stale ones are dropped by the drain.
+    pub preview_request_id: u64,
+    /// A background preview generation is in flight (drives the
+    /// "Loading preview…" placeholder).
+    pub preview_loading: bool,
     pub status: String,
     pub current_page: usize,
     pub total_pages: usize,
@@ -149,6 +158,7 @@ impl GlintApp {
         let preview_context_lines = service.config().clamped_preview_context_lines();
         let statistics = service.statistics().ok();
         let (search_tx, search_rx) = mpsc::channel::<(u64, glintindex_core::SearchResponse)>();
+        let (preview_tx, preview_rx) = mpsc::channel::<(u64, PreviewModel)>();
 
         let view = if service.has_enabled_folders() {
             View::Main
@@ -170,6 +180,10 @@ impl GlintApp {
             selected_index: None,
             selected_path: None,
             preview_model: None,
+            preview_rx: Some(preview_rx),
+            preview_tx: Some(preview_tx),
+            preview_request_id: 0,
+            preview_loading: false,
             status: "Ready".to_string(),
             current_page: 1,
             total_pages: 1,
@@ -223,6 +237,7 @@ impl GlintApp {
         self.frame_ctx = Some(ctx.clone());
         self.sync_theme(&ctx);
         self.drain_search_channel();
+        self.drain_preview_channel();
         self.poll_indexing(&ctx);
         self.handle_debounce(&ctx);
 
@@ -339,7 +354,14 @@ impl GlintApp {
         }
     }
 
-    /// Selects a result row: updates status, buttons, and loads preview.
+    /// Selects a result row: updates status, buttons, and starts loading
+    /// the preview.
+    ///
+    /// Feedback (row selection + filename status) applies immediately;
+    /// heavyweight generation runs on a background worker via
+    /// [`crate::preview_job`] so the click frame never blocks. The pane
+    /// shows "Loading preview…" until the model arrives. Metadata-only
+    /// files get a synchronous placeholder (no generation needed).
     pub fn select_result(&mut self, index: usize) {
         if index >= self.results.len() {
             return;
@@ -352,11 +374,14 @@ impl GlintApp {
             .unwrap_or_else(|| path.display().to_string());
         self.selected_path = Some(path.clone());
 
+        // Supersedes any current or in-flight preview.
+        self.invalidate_preview();
+
         // Use indexed text when available for consistency with search
         // results, fall back to disk for edge cases; metadata-only files
         // get a placeholder.
-        let output = if self.results[index].document.is_metadata_only {
-            glintindex_core::PreviewOutput {
+        if self.results[index].document.is_metadata_only {
+            let output = glintindex_core::PreviewOutput {
                 path,
                 lines: vec![glintindex_core::PreviewLine {
                     line_number: 1,
@@ -369,18 +394,26 @@ impl GlintApp {
                 is_binary: false,
                 error: None,
                 original_size: 0,
-            }
-        } else if !self.results[index].document.content.is_empty() {
-            self.preview_service.generate_preview(
-                &self.results[index].document.content,
-                &self.results[index].document.path,
-                &self.query,
-            )
-        } else {
-            self.preview_service
-                .load_preview(&self.results[index].document.path, &self.query)
+            };
+            self.preview_model = Some(crate::preview_model::build_preview_model(&output));
+            return;
+        }
+
+        let content = self.results[index].document.content.clone();
+        let Some(tx) = self.preview_tx.clone() else {
+            tracing::warn!("preview_tx not initialized");
+            return;
         };
-        self.preview_model = Some(crate::preview_model::build_preview_model(&output));
+        self.preview_loading = true;
+        crate::preview_job::spawn_preview(
+            self.preview_request_id,
+            self.preview_service.clone(),
+            content,
+            path,
+            self.query.clone(),
+            self.frame_ctx.clone(),
+            tx,
+        );
     }
 
     /// Stages a font-size change without applying it yet.

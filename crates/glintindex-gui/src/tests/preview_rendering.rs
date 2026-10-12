@@ -13,7 +13,7 @@ use crate::preview_model::{LineStyle, build_preview_model};
 use crate::theme::MATCH_BACKGROUND;
 use crate::ui::preview::{PLACEHOLDER_TEXT, to_layout_job};
 
-use super::{run_ui, setup_test_app};
+use super::{run_ui, setup_test_app, wait_for_preview};
 
 /// Extracts a section's slice of the job text (byte offsets via `ByteIndex`).
 fn section_text<'a>(job: &'a eframe::egui::text::LayoutJob, section: &LayoutSection) -> &'a str {
@@ -146,6 +146,7 @@ fn test_selection_then_clear_resets_preview() {
         .push(glintindex_core::SearchResult::new(doc, 1.0, "snip".into()));
 
     app.select_result(0);
+    wait_for_preview(&mut app);
     assert!(app.preview_model.is_some());
 
     app.clear_results();

@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 
 use glintindex_core::{Document, SearchQuery, SearchResult};
 
-use super::{run_ui, setup_test_app, setup_test_service};
+use super::{run_ui, setup_test_app, setup_test_service, wait_for_preview};
 
 fn sample_doc(i: usize) -> Document {
     Document::new(
@@ -44,11 +44,15 @@ fn test_row_selection_updates_selected_index_and_preview() {
         app.selected_path.as_deref(),
         Some(std::path::Path::new("/test/file_1.txt"))
     );
+    assert_eq!(app.status, "file_1.txt");
+    assert!(app.preview_loading, "generation starts in the background");
+
+    wait_for_preview(&mut app);
     assert!(
         app.preview_model.is_some(),
         "selection loads a preview model"
     );
-    assert_eq!(app.status, "file_1.txt");
+    assert!(!app.preview_loading);
 }
 
 #[test]
@@ -58,6 +62,91 @@ fn test_selection_out_of_range_is_ignored() {
     app.select_result(5);
     assert_eq!(app.selected_index, None);
     assert!(app.preview_model.is_none());
+}
+
+#[test]
+fn test_select_result_shows_loading_state() {
+    let (mut app, _tmp) = setup_test_app();
+    push_results(&mut app, 1);
+
+    app.select_result(0);
+    assert_eq!(app.status, "file_0.txt", "status feedback is immediate");
+    assert!(app.preview_loading, "generation runs in the background");
+    assert!(app.preview_model.is_none(), "model arrives via the channel");
+
+    wait_for_preview(&mut app);
+    assert!(app.preview_model.is_some(), "worker response applied");
+    assert!(!app.preview_loading);
+}
+
+#[test]
+fn test_stale_preview_response_is_dropped() {
+    let (mut app, _tmp) = setup_test_app();
+    push_results(&mut app, 1);
+    app.select_result(0);
+    let stale_id = app.preview_request_id;
+
+    // Supersede the selection (new click / clear / new search results).
+    app.invalidate_preview();
+
+    // Forge a late response for the old selection.
+    if let Some(tx) = app.preview_tx.clone() {
+        let marker = crate::preview_model::PreviewLine {
+            number_prefix: String::new(),
+            text: "STALE_MARKER".into(),
+            style: crate::preview_model::LineStyle::Normal,
+            match_ranges: Vec::new(),
+        };
+        let mut model = crate::preview_model::PreviewModel::default();
+        model.lines.push(marker);
+        tx.send((stale_id, model)).unwrap();
+    }
+    app.drain_preview_channel();
+
+    assert!(
+        app.preview_model.is_none(),
+        "superseded response must not apply"
+    );
+    assert!(!app.preview_loading);
+}
+
+#[test]
+fn test_search_response_invalidates_pending_preview() {
+    let (mut app, _tmp) = setup_test_app();
+    push_results(&mut app, 1);
+    app.select_result(0);
+    let pending_id = app.preview_request_id;
+    assert!(app.preview_loading);
+
+    let response = glintindex_core::SearchResponse::new(Vec::new(), 0, 0, 0);
+    crate::search::apply_search_response(&mut app, response);
+
+    assert!(app.preview_model.is_none());
+    assert!(!app.preview_loading, "pending preview is invalidated");
+    assert_ne!(app.preview_request_id, pending_id);
+
+    // A late worker response for the old id must stay dropped.
+    app.drain_preview_channel();
+    assert!(app.preview_model.is_none());
+}
+
+#[test]
+fn test_metadata_only_preview_is_synchronous() {
+    let (mut app, _tmp) = setup_test_app();
+    let mut doc = sample_doc(0);
+    doc.is_metadata_only = true;
+    app.results.push(SearchResult::new(doc, 1.0, "snip".into()));
+
+    app.select_result(0);
+
+    assert!(!app.preview_loading, "no worker for metadata-only files");
+    let model = app.preview_model.as_ref().expect("synchronous model");
+    assert!(
+        model
+            .lines
+            .iter()
+            .any(|l| l.text.contains("indexed by file name"))
+    );
 }
 
 #[test]
