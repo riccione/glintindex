@@ -29,6 +29,20 @@ pub fn show(app: &mut GlintApp, ui: &mut egui::Ui) {
             .show(ui, |ui| {
                 for (index, result) in app.results.iter().enumerate() {
                     let selected = app.selected_index == Some(index);
+                    // Full-row selection background, painted before the
+                    // label so the text draws on top. Response::highlight
+                    // only underlines Labels, which reads as "no change".
+                    if selected {
+                        let rect = egui::Rect::from_min_size(
+                            ui.cursor().min,
+                            egui::vec2(
+                                ui.available_width(),
+                                ui.text_style_height(&egui::TextStyle::Body),
+                            ),
+                        );
+                        ui.painter()
+                            .rect_filled(rect, 0.0, ui.visuals().selection.bg_fill);
+                    }
                     // selectable(false): rows are list items, not text —
                     // keeps egui's label text-selection from showing an
                     // I-beam cursor over them (and lets drag scroll).
@@ -36,11 +50,6 @@ pub fn show(app: &mut GlintApp, ui: &mut egui::Ui) {
                         .truncate()
                         .selectable(false);
                     let response = ui.add(label.sense(Sense::click()));
-                    let response = if selected {
-                        response.highlight()
-                    } else {
-                        response
-                    };
                     if response.clicked() {
                         new_selection = Some(index);
                     }
