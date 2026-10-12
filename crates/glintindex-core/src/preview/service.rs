@@ -56,6 +56,47 @@ fn truncate_at_char_boundary(text: &str, max: usize) -> &str {
     &text[..cut]
 }
 
+/// Identifies the exact source a cached preview was built from.
+///
+/// Disk and in-memory fingerprints live in separate variants so an
+/// index-content preview can never satisfy a disk lookup (or vice
+/// versa) — the two sources may legitimately differ for the same path.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum CacheKey {
+    /// Preview built from caller-supplied content (hash of the
+    /// bounded slice that was actually highlighted).
+    Content(u64),
+    /// Preview read from disk, validated by size + modification time.
+    Disk { len: u64, mtime_ns: Option<u128> },
+}
+
+/// Hashes the highlight-relevant bytes of `text` for [`CacheKey::Content`].
+fn content_fingerprint(text: &str) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    text.hash(&mut hasher);
+    hasher.finish()
+}
+
+/// Fingerprints a file's size + mtime for [`CacheKey::Disk`].
+///
+/// Returns `None` when metadata is unavailable or the timestamp predates
+/// the Unix epoch — callers skip caching in that case rather than risk
+/// stale hits.
+fn disk_fingerprint(path: &Path) -> Option<CacheKey> {
+    let meta = std::fs::metadata(path).ok()?;
+    let mtime_ns = meta
+        .modified()
+        .ok()?
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()
+        .map(|d| d.as_nanos());
+    Some(CacheKey::Disk {
+        len: meta.len(),
+        mtime_ns,
+    })
+}
+
 /// Complete preview output for a file.
 #[derive(Debug, Clone)]
 pub struct PreviewOutput {
@@ -98,8 +139,9 @@ pub struct PreviewLine {
 pub struct PreviewService {
     config: PreviewConfig,
     syntax_highlighter: Arc<Mutex<SyntaxHighlighter>>,
-    /// Cache for the last loaded file to avoid redundant reloads.
-    cache: Arc<Mutex<Option<(PathBuf, PreviewOutput)>>>,
+    /// Cache for the last preview, keyed by the exact source bytes
+    /// (path + [`CacheKey`]) so neither lookup path can go stale.
+    cache: Arc<Mutex<Option<(PathBuf, CacheKey, PreviewOutput)>>>,
 }
 
 impl Clone for PreviewService {
@@ -148,16 +190,40 @@ impl PreviewService {
         let original_size = text.len() as u64;
         let cap = usize::try_from(self.config.max_file_size).unwrap_or(usize::MAX);
         let bounded = truncate_at_char_boundary(text, cap);
+        let truncated = bounded.len() < text.len();
+        let key = CacheKey::Content(content_fingerprint(bounded));
+
+        // Re-highlighting is the expensive part (syntect) — reuse the
+        // cached syntax lines when the exact same bytes were seen.
+        {
+            let cache = self.cache.lock().unwrap_or_else(|e| e.into_inner());
+            if let Some((cached_path, cached_key, cached_output)) = cache.as_ref() {
+                if cached_path == path && *cached_key == key && cached_output.error.is_none() {
+                    let mut output = cached_output.clone();
+                    // Envelope facts come from *this* input: two texts
+                    // can share the bounded slice but differ beyond it.
+                    output.original_size = original_size;
+                    output.truncated = truncated;
+                    self.finalize_preview(&mut output, query);
+                    return output;
+                }
+            }
+        }
+
         let lines = self.highlight_content(bounded, path);
         let mut output = PreviewOutput {
             path: path.to_path_buf(),
             lines,
-            truncated: bounded.len() < text.len(),
+            truncated,
             encoding: Encoding::Utf8,
             is_binary: false,
             error: None,
             original_size,
         };
+        {
+            let mut cache = self.cache.lock().unwrap_or_else(|e| e.into_inner());
+            *cache = Some((path.to_path_buf(), key, output.clone()));
+        }
         self.finalize_preview(&mut output, query);
         output
     }
@@ -169,12 +235,15 @@ impl PreviewService {
     /// and search match highlighting. Results are cached to avoid
     /// redundant file I/O.
     pub fn load_preview(&self, path: &Path, query: &str) -> PreviewOutput {
-        // Check cache first. The cache stores the full, highlight-free
-        // output so each query gets fresh highlights and context filtering.
-        {
+        // Check cache first — validated by a cheap stat (size + mtime)
+        // so unchanged files skip both the read and re-highlighting.
+        // The cache stores the full, highlight-free output so each
+        // query gets fresh highlights and context filtering.
+        let disk_key = disk_fingerprint(path);
+        if let Some(key) = &disk_key {
             let cache = self.cache.lock().unwrap_or_else(|e| e.into_inner());
-            if let Some((cached_path, cached_output)) = cache.as_ref() {
-                if cached_path == path && cached_output.error.is_none() {
+            if let Some((cached_path, cached_key, cached_output)) = cache.as_ref() {
+                if cached_path == path && cached_key == key && cached_output.error.is_none() {
                     let mut output = cached_output.clone();
                     self.finalize_preview(&mut output, query);
                     return output;
@@ -223,9 +292,9 @@ impl PreviewService {
             original_size: load_result.original_size,
         };
 
-        {
+        if let Some(key) = disk_key {
             let mut cache = self.cache.lock().unwrap_or_else(|e| e.into_inner());
-            *cache = Some((path.to_path_buf(), output.clone()));
+            *cache = Some((path.to_path_buf(), key, output.clone()));
         }
 
         self.finalize_preview(&mut output, query);
@@ -799,5 +868,96 @@ mod tests {
 
         assert_eq!(output.lines[0].text, "hello world");
         assert!(!output.truncated);
+    }
+
+    #[test]
+    fn generate_preview_cache_hit_reuses_highlighted_lines() {
+        let service = PreviewService::with_default_config();
+        let path = Path::new("test.txt");
+        let first = service.generate_preview("hello world", path, "");
+        assert_eq!(first.lines[0].text, "hello world");
+
+        // Poison the cached entry: a hit must surface the marker
+        // without re-running syntax highlighting.
+        {
+            let mut cache = service.cache.lock().unwrap();
+            let (_, _, output) = cache.as_mut().expect("entry cached after first call");
+            output.lines[0].text = "POISON".to_string();
+        }
+
+        let second = service.generate_preview("hello world", path, "");
+        assert_eq!(
+            second.lines[0].text, "POISON",
+            "second call must hit the cache"
+        );
+    }
+
+    #[test]
+    fn generate_preview_cache_invalidated_on_content_change() {
+        let service = PreviewService::with_default_config();
+        let path = Path::new("test.txt");
+        let first = service.generate_preview("alpha content", path, "");
+        let second = service.generate_preview("beta content", path, "");
+
+        assert!(first.lines.iter().any(|l| l.text.contains("alpha")));
+        assert!(
+            second.lines.iter().any(|l| l.text.contains("beta")),
+            "changed content must re-highlight, not serve stale lines"
+        );
+    }
+
+    #[test]
+    fn generate_preview_cache_hit_reports_current_envelope() {
+        let config = PreviewConfig {
+            max_file_size: 16,
+            ..Default::default()
+        };
+        let service = PreviewService::new(config);
+        let path = Path::new("test.txt");
+
+        let first = service.generate_preview("0123456789abcdefX", path, ""); // 17 B
+        assert!(first.truncated);
+        assert_eq!(first.original_size, 17);
+
+        // Identical bounded slice (cache hit) but the input itself is
+        // now exactly the cap — envelope facts must come from this call.
+        let second = service.generate_preview("0123456789abcdef", path, "");
+        assert_eq!(second.original_size, 16, "hit reports current input size");
+        assert!(!second.truncated, "hit reports current truncation");
+    }
+
+    #[test]
+    fn load_preview_disk_cache_invalidated_on_file_change() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("test.txt");
+        std::fs::write(&path, "first version").unwrap();
+
+        let service = PreviewService::with_default_config();
+        let first = service.load_preview(&path, "");
+        assert!(first.lines.iter().any(|l| l.text.contains("first")));
+
+        std::fs::write(&path, "second version, longer than before").unwrap();
+        let second = service.load_preview(&path, "");
+        assert!(
+            second.lines.iter().any(|l| l.text.contains("second")),
+            "changed file must re-read, not serve stale lines"
+        );
+    }
+
+    #[test]
+    fn disk_and_content_cache_entries_do_not_cross() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("test.txt");
+        std::fs::write(&path, "disk text").unwrap();
+
+        let service = PreviewService::with_default_config();
+        let memory = service.generate_preview("memory text", &path, "");
+        let disk = service.load_preview(&path, "");
+
+        assert!(memory.lines.iter().any(|l| l.text.contains("memory text")));
+        assert!(
+            disk.lines.iter().any(|l| l.text.contains("disk text")),
+            "disk lookup must not be satisfied by a content-cache entry"
+        );
     }
 }
