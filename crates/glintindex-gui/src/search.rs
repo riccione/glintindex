@@ -128,7 +128,8 @@ impl GlintApp {
         };
         let index_handle = self.service.index_service_handle();
         let search_query =
-            glintindex_core::SearchQuery::paged(&query, self.current_page, self.per_page);
+            glintindex_core::SearchQuery::paged(&query, self.current_page, self.per_page)
+                .with_fuzzy(self.service.config().fuzzy_search);
         let query_id = Self::next_query_id();
         spawn_search(
             index_handle,

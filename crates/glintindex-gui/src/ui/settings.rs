@@ -8,6 +8,7 @@ use std::path::PathBuf;
 use eframe::egui::{self, Align, Layout, RichText};
 
 use crate::app::{GlintApp, IndexJob, SettingsPage, View};
+use crate::search::query_eligible;
 
 /// Application version from Cargo.toml at compile time.
 const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -120,7 +121,45 @@ fn info_row(ui: &mut egui::Ui, label: &str, value: &str) {
 
 // ── General ────────────────────────────────────────────────────
 
-fn general_page(app: &GlintApp, ui: &mut egui::Ui) {
+/// iOS-style toggle switch bound to `on`; flips it on click.
+///
+/// The knob position is animated with [`egui::Context::animate_bool`].
+fn toggle_switch(ui: &mut egui::Ui, on: &mut bool) -> egui::Response {
+    let size = egui::vec2(40.0, 22.0);
+    let (rect, mut response) = ui.allocate_exact_size(size, egui::Sense::click());
+    if response.clicked() {
+        *on = !*on;
+        response.mark_changed();
+    }
+
+    let visuals = ui.visuals();
+    let rounding = rect.height() / 2.0;
+    let track = if *on {
+        visuals.selection.bg_fill
+    } else {
+        visuals.faint_bg_color
+    };
+    ui.painter().rect_filled(rect, rounding, track);
+
+    // Knob diameter is height-4; center travels width - height total.
+    let travel = rect.width() - rect.height();
+    let t = ui.ctx().animate_bool(response.id, *on);
+    let cx = rect.left() + 2.0 + (rect.height() - 4.0) / 2.0 + t * travel.max(0.0);
+    let knob_color = if *on {
+        egui::Color32::WHITE
+    } else {
+        visuals.strong_text_color()
+    };
+    ui.painter().circle_filled(
+        egui::pos2(cx, rect.center().y),
+        (rect.height() - 4.0) / 2.0,
+        knob_color,
+    );
+
+    response.on_hover_cursor(egui::CursorIcon::PointingHand)
+}
+
+fn general_page(app: &mut GlintApp, ui: &mut egui::Ui) {
     page_header(ui, "General");
     let config_display = app
         .service
@@ -135,6 +174,30 @@ fn general_page(app: &GlintApp, ui: &mut egui::Ui) {
     info_row(ui, "Version", APP_VERSION);
     info_row(ui, "Config Directory", &config_display);
     info_row(ui, "Index Directory", &index_display);
+
+    ui.add_space(8.0);
+    ui.separator();
+    ui.add_space(8.0);
+
+    ui.label(RichText::new("Search").strong());
+    let before = app.service.config().fuzzy_search;
+    let mut fuzzy = before;
+    ui.horizontal(|ui| {
+        ui.vertical(|ui| {
+            ui.label("Fuzzy search (typo tolerance)");
+            ui.weak("Tolerates single-character typos in searches.");
+        });
+        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            toggle_switch(ui, &mut fuzzy);
+        });
+    });
+    if fuzzy != before {
+        let _ = app.service.set_fuzzy_search(fuzzy);
+        // Reflect the new mode on an active search immediately.
+        if query_eligible(&app.query) {
+            app.dispatch_search();
+        }
+    }
 }
 
 // ── Appearance ─────────────────────────────────────────────────
