@@ -23,8 +23,5 @@ jobs:
     with:
       apt_packages: >-
         pkg-config
-        libgtk-4-dev
         build-essential
-        xvfb
-      use_xvfb: true
       test_args: --workspace -- --test-threads=1

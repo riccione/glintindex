@@ -570,7 +570,7 @@ impl ApplicationService {
     /// Returns a clone of the shared index service handle.
     ///
     /// This is used by the GUI to run searches on background threads
-    /// without blocking the GTK main loop. The returned
+    /// without blocking the UI event loop. The returned
     /// `Arc<Mutex<IndexService>>` can be cloned and moved into a
     /// `std::thread::spawn` closure.
     pub fn index_service_handle(&self) -> Arc<Mutex<IndexService>> {

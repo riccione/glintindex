@@ -22,14 +22,14 @@ glintindex/
 ├── crates/
 │   ├── glintindex-core    # Core library: indexing, scanning, search, config
 │   ├── glintindex-cli     # Command-line interface
-│   └── glintindex-gui     # GUI frontend (GTK4)
+│   └── glintindex-gui     # GUI frontend (eframe/egui)
 ```
 
 | Crate | Description |
 |-------|-------------|
 | `glintindex-core` | Application service, filesystem scanner, Tantivy index, configuration |
 | `glintindex-cli` | Thin CLI frontend using clap |
-| `glintindex-gui` | Desktop GUI using GTK4 |
+| `glintindex-gui` | Desktop GUI using eframe/egui |
 
 ## Supported File Types
 
@@ -55,7 +55,7 @@ Documents: `.pdf`, `.docx`, `.xlsx`, `.pptx`, `.rtf`, `.odt`
 | `thiserror` | 2.0.18 | Error handling |
 | `anyhow` | 1.0.103 | Error context (CLI) |
 | `tracing` | 0.1.44 | Structured logging |
-| `gtk4` | 0.11.4 | GUI framework |
+| `eframe` | 0.36.2 | GUI framework (egui) |
 | `notify` | 8.2.0 | Filesystem watching |
 
 ### Cargo Features
@@ -125,17 +125,13 @@ sudo dpkg -i glintindex_<version>_amd64.deb
 sudo apt-get install -f
 ```
 
-**Requirements:** GTK4 must be installed on your system.
+**Requirements:** Common desktop runtime libraries (X11/Wayland client
+libs and OpenGL). Most Linux desktops already provide them; the `.deb`
+declares them as dependencies:
 
 ```bash
-# Debian/Ubuntu
-sudo apt-get install libgtk-4-0
-
-# Fedora
-sudo dnf install gtk4
-
-# Arch
-sudo pacman -S gtk4
+# Debian/Ubuntu — let apt resolve the declared dependencies
+sudo apt-get install -f
 ```
 
 #### Windows
@@ -144,7 +140,7 @@ sudo pacman -S gtk4
 2. Extract the ZIP to a directory of your choice
 3. Run `glintindex.exe` (GUI) or `glintindex-cli.exe` (CLI)
 
-**Note:** GTK4 runtime libraries are bundled in the ZIP.
+**Note:** Required runtime DLLs are bundled in the ZIP.
 
 #### macOS
 
@@ -154,7 +150,7 @@ sudo pacman -S gtk4
 2. Extract and move `GlintIndex.app` to your Applications folder
 3. Right-click and select "Open" the first time (unsigned app warning)
 
-**Note:** The `.app` bundle is self-contained with GTK4 libraries included.
+**Note:** The `.app` bundle is self-contained.
 
 ## Usage
 
@@ -270,7 +266,7 @@ glintindex
 
 ### Settings
 
-Access settings via the hamburger menu or keyboard shortcut:
+Access settings via the Settings button in the toolbar:
 
 - **General**: Configure indexed and ignored folders
 - **Appearance**: Theme selection, font size (8-32pt)
@@ -510,10 +506,10 @@ Scope is typically `core`, `cli`, or `gui`.
 - **macOS:** The `.app` bundle is self-contained but not code-signed or notarized. Users will see a Gatekeeper warning on first launch.
 - **macOS:** No DMG disk image distribution. ZIP is provided for the MVP.
 - **macOS:** No custom application icon yet (uses default app icon).
-- **macOS x86_64:** Built via cross-compilation. Some edge cases with GTK4 libraries may exist.
+- **macOS x86_64:** Built via cross-compilation from the arm64 runner.
 - **Windows:** No MSI or NSIS installer. ZIP distribution only.
-- **Windows:** GTK4 runtime DLLs are bundled, but some rare transitive dependencies may be missing.
-- **Linux:** Requires GTK4 system libraries to be installed (`libgtk-4-0` or equivalent).
+- **Windows:** Runtime DLLs are bundled, but some rare transitive dependencies may be missing.
+- **Linux:** Requires OpenGL and libxkbcommon (declared as `.deb` dependencies).
 
 ## Release
 
