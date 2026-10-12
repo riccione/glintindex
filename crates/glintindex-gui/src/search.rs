@@ -25,11 +25,16 @@ pub(crate) fn query_eligible(query: &str) -> bool {
 static NEXT_QUERY_ID: AtomicU64 = AtomicU64::new(1);
 
 /// Performs a search on a background thread and sends the result through `tx`.
+///
+/// `ctx` (when present) is used to wake the UI after the response is
+/// sent — egui does not repaint on its own while idle, so without the
+/// wake-up a response can sit unread until the next input event.
 fn spawn_search(
     index_handle: std::sync::Arc<std::sync::Mutex<glintindex_core::IndexService>>,
     query: glintindex_core::SearchQuery,
     tx: mpsc::Sender<(u64, glintindex_core::SearchResponse)>,
     query_id: u64,
+    ctx: Option<eframe::egui::Context>,
 ) {
     std::thread::spawn(move || {
         use glintindex_core::traits::SearchEngine;
@@ -54,6 +59,9 @@ fn spawn_search(
                     glintindex_core::SearchResponse::new(Vec::new(), 0, 0, 0),
                 ));
             }
+        }
+        if let Some(ctx) = ctx {
+            ctx.request_repaint();
         }
     });
 }
@@ -122,7 +130,13 @@ impl GlintApp {
         let search_query =
             glintindex_core::SearchQuery::paged(&query, self.current_page, self.per_page);
         let query_id = Self::next_query_id();
-        spawn_search(index_handle, search_query, tx, query_id);
+        spawn_search(
+            index_handle,
+            search_query,
+            tx,
+            query_id,
+            self.frame_ctx.clone(),
+        );
         self.last_dispatched = query;
     }
 

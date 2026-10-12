@@ -101,6 +101,13 @@ pub struct GlintApp {
     pub search_tx: Option<mpsc::Sender<(u64, glintindex_core::SearchResponse)>>,
     pub latest_applied_id: u64,
 
+    /// Context clone used to wake the UI when a background worker
+    /// finishes (repaint does not happen on its own while idle).
+    ///
+    /// Refreshed every frame in [`Self::ui`]; `None` in headless tests
+    /// that never run a frame.
+    pub(crate) frame_ctx: Option<egui::Context>,
+
     // ── Views / settings ──────────────────────────────────────
     pub view: View,
     pub settings_page: SettingsPage,
@@ -171,6 +178,7 @@ impl GlintApp {
             search_rx: Some(search_rx),
             search_tx: Some(search_tx),
             latest_applied_id: 0,
+            frame_ctx: None,
             view,
             settings_page: SettingsPage::General,
             poll: None,
@@ -212,6 +220,7 @@ impl GlintApp {
     /// One frame of UI. Called by `eframe::App::ui` and by tests.
     pub fn ui(&mut self, ui: &mut egui::Ui) {
         let ctx = ui.ctx().clone();
+        self.frame_ctx = Some(ctx.clone());
         self.sync_theme(&ctx);
         self.drain_search_channel();
         self.poll_indexing(&ctx);
