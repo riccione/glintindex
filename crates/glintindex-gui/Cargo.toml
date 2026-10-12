@@ -10,12 +10,11 @@ publish = false
 
 [dependencies]
 glintindex-core.workspace = true
-gtk = { package = "gtk4", version = "=0.11.4" }
+eframe = "0.36.2"
 open.workspace = true
 tracing.workspace = true
 tracing-log = "0.2.0"
 anyhow.workspace = true
-tokio.workspace = true
 rfd.workspace = true
 
 [dev-dependencies]
@@ -25,10 +24,10 @@ tempfile = "3"
 maintainer = "riccione"
 copyright = "2024 GlintIndex Contributors"
 license-file = ["../../LICENSE", "0"]
-extended-description = "A fast, local desktop search engine with a GTK4 GUI"
+extended-description = "A fast, local desktop search engine with an egui GUI"
 section = "utils"
 priority = "optional"
-depends = "libgtk-4-0, libgtk-4-common"
+depends = "libxkbcommon0, libxcb-render0, libxcb-shape0, libxcb-xfixes0, libxkbcommon-x11-0, libgl1"
 assets = [
     ["target/release/glintindex-gui", "/usr/bin/", "755"],
     ["assets/glintindex.desktop", "/usr/share/applications/", "644"],

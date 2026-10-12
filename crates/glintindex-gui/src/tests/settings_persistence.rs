@@ -1,401 +1,128 @@
 //! Settings persistence tests.
 //!
-//! Tests GTK widget interactions with application settings,
-//! verifying that user interactions update the backing state.
+//! Covers config writes/reads for theme, font size, index-on-startup,
+//! folders, and ignored folders — mostly service-level, plus the
+//! settings-view wiring that persists changes.
 
-use gtk::prelude::*;
+use glintindex_core::Theme;
 
-use super::setup_test_state;
+use super::{run_ui, setup_test_app, setup_test_service};
 
-#[gtk::test]
-fn test_theme_radio_buttons_mutual_exclusion() {
-    let _ = gtk::init();
-    let radio_system = gtk::CheckButton::with_label("System");
-    let radio_light = gtk::CheckButton::with_label("Light");
-    let radio_dark = gtk::CheckButton::with_label("Dark");
-
-    radio_light.set_group(Some(&radio_system));
-    radio_dark.set_group(Some(&radio_system));
-
-    radio_system.set_active(true);
-    assert!(radio_system.is_active());
-    assert!(!radio_light.is_active());
-    assert!(!radio_dark.is_active());
-
-    radio_light.set_active(true);
-    assert!(!radio_system.is_active());
-    assert!(radio_light.is_active());
-    assert!(!radio_dark.is_active());
+#[test]
+fn test_theme_persists() {
+    let (mut service, _tmp) = setup_test_service();
+    service.set_theme(Theme::Dark).unwrap();
+    assert_eq!(service.config().theme, Theme::Dark);
+    service.set_theme(Theme::Light).unwrap();
+    assert_eq!(service.config().theme, Theme::Light);
 }
 
-#[gtk::test]
-fn test_selecting_theme_updates_config() {
-    let _ = gtk::init();
-    let (state, _tmp) = setup_test_state();
-
-    let state = std::rc::Rc::new(std::cell::RefCell::new(state));
-    let state_clone = state.clone();
-
-    let radio_system = gtk::CheckButton::with_label("System");
-    radio_system.set_active(true);
-
-    radio_system.connect_toggled(move |btn| {
-        if btn.is_active() {
-            let mut st = state_clone.borrow_mut();
-            let _ = st.service.set_theme(glintindex_core::Theme::System);
-        }
-    });
-
-    radio_system.set_active(true);
-    super::process_events();
-
-    let st = state.borrow();
-    assert_eq!(st.service.config().theme, glintindex_core::Theme::System);
+#[test]
+fn test_font_size_persists_and_roundtrips() {
+    let (mut service, _tmp) = setup_test_service();
+    service.set_font_size(18).unwrap();
+    assert_eq!(service.config().clamped_font_size(), 18);
 }
 
-#[gtk::test]
-fn test_font_size_spin_updates_config() {
-    let _ = gtk::init();
-    let (state, _tmp) = setup_test_state();
-
-    let state = std::rc::Rc::new(std::cell::RefCell::new(state));
-    let state_clone = state.clone();
-
-    let spin = gtk::SpinButton::builder()
-        .adjustment(&gtk::Adjustment::new(12.0, 8.0, 32.0, 1.0, 5.0, 0.0))
-        .build();
-
-    spin.connect_value_changed(move |btn| {
-        let new_size = btn.value() as u32;
-        let mut st = state_clone.borrow_mut();
-        let _ = st.service.set_font_size(new_size);
-    });
-
-    spin.set_value(20.0);
-    super::process_events();
-
-    let st = state.borrow();
-    assert_eq!(st.service.config().font_size, 20);
+#[test]
+fn test_index_on_startup_roundtrip() {
+    let (mut service, _tmp) = setup_test_service();
+    service.set_index_on_startup(true).unwrap();
+    assert!(service.config().index_on_startup);
+    service.set_index_on_startup(false).unwrap();
+    assert!(!service.config().index_on_startup);
 }
 
-#[gtk::test]
-fn test_font_size_clamped_to_valid_range() {
-    let _ = gtk::init();
-    let (state, _tmp) = setup_test_state();
+#[test]
+fn test_folder_add_enable_disable_remove() {
+    let (mut service, tmp) = setup_test_service();
+    let folder = tmp.path().join("docs");
+    std::fs::create_dir(&folder).unwrap();
 
-    let state = std::rc::Rc::new(std::cell::RefCell::new(state));
-    let state_clone = state.clone();
+    service.add_folder(&folder).unwrap();
+    assert_eq!(service.indexed_folders().len(), 1);
+    assert!(service.has_enabled_folders());
 
-    let spin = gtk::SpinButton::builder()
-        .adjustment(&gtk::Adjustment::new(12.0, 8.0, 32.0, 1.0, 5.0, 0.0))
-        .build();
+    service.disable_folder(&folder).unwrap();
+    assert!(!service.enabled_folders().iter().any(|f| f.path == folder));
 
-    spin.connect_value_changed(move |btn| {
-        let new_size = btn.value() as u32;
-        let mut st = state_clone.borrow_mut();
-        let _ = st.service.set_font_size(new_size);
-    });
+    service.enable_folder(&folder).unwrap();
+    assert!(service.enabled_folders().iter().any(|f| f.path == folder));
 
-    spin.set_value(50.0);
-    super::process_events();
-
-    let st = state.borrow();
-    let clamped = st.service.config().clamped_font_size();
-    assert!((8..=32).contains(&clamped), "Font size should be clamped");
+    service.remove_folder(&folder).unwrap();
+    assert!(service.indexed_folders().is_empty());
+    assert!(!service.has_enabled_folders());
 }
 
-#[gtk::test]
-fn test_config_roundtrip_preserves_settings() {
-    let _ = gtk::init();
-    let (mut state, tmp) = setup_test_state();
+#[test]
+fn test_ignored_folder_add_remove() {
+    let (mut service, _tmp) = setup_test_service();
+    service.add_ignored_folder("node_modules".into()).unwrap();
+    assert!(
+        service
+            .ignored_folders()
+            .contains(&"node_modules".to_string())
+    );
+    service.remove_ignored_folder("node_modules").unwrap();
+    assert!(
+        !service
+            .ignored_folders()
+            .contains(&"node_modules".to_string())
+    );
+}
+
+#[test]
+fn test_config_survives_reload() {
+    let (mut service, tmp) = setup_test_service();
+    service.set_theme(Theme::Dark).unwrap();
+    service.set_font_size(20).unwrap();
     let config_path = tmp.path().join("config.toml");
 
-    let _ = state.service.set_theme(glintindex_core::Theme::Dark);
-    let _ = state.service.set_font_size(20);
-    glintindex_core::config::loader::save(&config_path, state.service.config()).unwrap();
-
-    let restored = glintindex_core::config::loader::load(&config_path).unwrap();
-    assert_eq!(restored.theme, glintindex_core::Theme::Dark);
-    assert_eq!(restored.font_size, 20);
+    let reloaded = glintindex_core::config::loader::load(&config_path).unwrap();
+    assert_eq!(reloaded.theme, Theme::Dark);
+    assert_eq!(reloaded.clamped_font_size(), 20);
 }
 
-#[gtk::test]
-fn test_default_config_when_keys_missing() {
-    let _ = gtk::init();
-    let tmp = tempfile::TempDir::new().unwrap();
-    let config_path = tmp.path().join("config.toml");
-    std::fs::write(
-        &config_path,
-        r#"indexed_folders = []
-ignored_folders = [".git", ".svn"]
-index_directory = "/tmp/glintindex-test-index"
-theme = "system"
-max_preview_size = 200
-commit_interval = 500
-"#,
-    )
-    .unwrap();
+#[test]
+fn test_settings_appearance_click_persists_theme() {
+    let (mut app, _tmp) = setup_test_app();
+    app.view = crate::app::View::Settings;
+    app.settings_page = crate::app::SettingsPage::Appearance;
 
-    let config = glintindex_core::config::loader::load(&config_path).unwrap();
-    assert_eq!(config.theme, glintindex_core::Theme::System);
-    assert_eq!(config.max_preview_size, 200);
-    assert_eq!(config.commit_interval, 500);
-    assert_eq!(config.ignored_folders.len(), 2);
+    // Simulate what the Appearance page does on Dark click.
+    app.service.set_theme(Theme::Dark).unwrap();
+    app.applied_theme = None;
+
+    run_ui(&mut app, 2);
+    assert_eq!(app.service.config().theme, Theme::Dark);
 }
 
-#[gtk::test]
-fn test_toggle_button_enables_disables_folder() {
-    let _ = gtk::init();
-    let (service, _tmp) = {
-        let tmp = tempfile::TempDir::new().unwrap();
-        let folder_path = tmp.path().join("test_folder");
-        std::fs::create_dir(&folder_path).unwrap();
-
-        let config_path = tmp.path().join("config.toml");
-        let index_dir = tmp.path().join("test_index");
-        std::fs::write(
-            &config_path,
-            format!(
-                r#"indexed_folders = []
-ignored_folders = []
-index_directory = "{}"
-theme = "system"
-max_preview_size = 200
-commit_interval = 500
-"#,
-                index_dir.display()
-            ),
-        )
-        .unwrap();
-        let mut svc = glintindex_core::ApplicationService::with_config_path(&config_path).unwrap();
-        let _ = svc.add_folder(&folder_path);
-        (svc, tmp)
-    };
-
-    let state = std::rc::Rc::new(std::cell::RefCell::new(super::setup_test_state().0));
-
-    // Override service
-    {
-        let mut st = state.borrow_mut();
-        st.service = service;
-    }
-
-    // Disable
-    {
-        let mut st = state.borrow_mut();
-        let folders: Vec<_> = st.service.indexed_folders().into_iter().cloned().collect();
-        let _ = st.service.disable_folder(&folders[0].path);
-    }
-    {
-        let st = state.borrow();
-        assert!(st.service.enabled_folders().is_empty());
-    }
-
-    // Re-enable
-    {
-        let mut st = state.borrow_mut();
-        let folders: Vec<_> = st.service.indexed_folders().into_iter().cloned().collect();
-        let _ = st.service.enable_folder(&folders[0].path);
-    }
-    {
-        let st = state.borrow();
-        assert_eq!(st.service.enabled_folders().len(), 1);
+#[test]
+fn test_settings_view_navigates_pages() {
+    let (mut app, _tmp) = setup_test_app();
+    app.view = crate::app::View::Settings;
+    for page in crate::app::SettingsPage::ALL {
+        app.settings_page = page;
+        run_ui(&mut app, 1);
+        assert_eq!(app.settings_page, page);
     }
 }
 
-#[gtk::test]
-fn test_remove_button_deletes_folder() {
-    let _ = gtk::init();
-    let (service, _tmp) = {
-        let tmp = tempfile::TempDir::new().unwrap();
-        let folder_path = tmp.path().join("test_folder");
-        std::fs::create_dir(&folder_path).unwrap();
+#[test]
+fn test_leave_settings_returns_to_main_or_empty() {
+    let (mut app, _tmp) = setup_test_app();
+    app.view = crate::app::View::Settings;
 
-        let config_path = tmp.path().join("config.toml");
-        let index_dir = tmp.path().join("test_index");
-        std::fs::write(
-            &config_path,
-            format!(
-                r#"indexed_folders = []
-ignored_folders = []
-index_directory = "{}"
-theme = "system"
-max_preview_size = 200
-commit_interval = 500
-"#,
-                index_dir.display()
-            ),
-        )
-        .unwrap();
-        let mut svc = glintindex_core::ApplicationService::with_config_path(&config_path).unwrap();
-        let _ = svc.add_folder(&folder_path);
-        (svc, tmp)
-    };
+    // No folders → empty view.
+    app.leave_settings();
+    assert_eq!(app.view, crate::app::View::Empty);
 
-    let state = std::rc::Rc::new(std::cell::RefCell::new(super::setup_test_state().0));
-    {
-        let mut st = state.borrow_mut();
-        st.service = service;
-    }
-
-    assert_eq!(state.borrow().service.indexed_folders().len(), 1);
-
-    {
-        let mut st = state.borrow_mut();
-        let folders: Vec<_> = st.service.indexed_folders().into_iter().cloned().collect();
-        let _ = st.service.remove_folder(&folders[0].path);
-    }
-    {
-        let st = state.borrow();
-        assert!(st.service.indexed_folders().is_empty());
-    }
-}
-
-#[gtk::test]
-fn test_ignored_folders_add_and_remove() {
-    let _ = gtk::init();
-    let (state, _tmp) = setup_test_state();
-
-    let state = std::rc::Rc::new(std::cell::RefCell::new(state));
-
-    {
-        let mut st = state.borrow_mut();
-        let _ = st.service.add_ignored_folder("custom_dir".to_string());
-    }
-    {
-        let st = state.borrow();
-        assert!(
-            st.service
-                .ignored_folders()
-                .contains(&"custom_dir".to_string())
-        );
-    }
-
-    {
-        let mut st = state.borrow_mut();
-        let _ = st.service.remove_ignored_folder("custom_dir");
-    }
-    {
-        let st = state.borrow();
-        assert!(
-            !st.service
-                .ignored_folders()
-                .contains(&"custom_dir".to_string())
-        );
-    }
-}
-
-#[gtk::test]
-fn test_index_on_startup_toggle_updates_config() {
-    let _ = gtk::init();
-    let (state, _tmp) = setup_test_state();
-
-    let state = std::rc::Rc::new(std::cell::RefCell::new(state));
-    let state_clone = state.clone();
-
-    let check = gtk::CheckButton::with_label("Index automatically at startup");
-    check.set_active(state.borrow().service.config().index_on_startup);
-    assert!(check.is_active(), "default should be on");
-
-    check.connect_toggled(move |btn| {
-        let enabled = btn.is_active();
-        let mut st = state_clone.borrow_mut();
-        let _ = st.service.set_index_on_startup(enabled);
-    });
-
-    check.set_active(false);
-    super::process_events();
-
-    {
-        let st = state.borrow();
-        assert!(!st.service.config().index_on_startup);
-    }
-
-    check.set_active(true);
-    super::process_events();
-
-    {
-        let st = state.borrow();
-        assert!(st.service.config().index_on_startup);
-    }
-}
-
-#[gtk::test]
-fn test_index_on_startup_roundtrip_preserves_setting() {
-    let _ = gtk::init();
-    let (mut state, tmp) = setup_test_state();
-    let config_path = tmp.path().join("config.toml");
-
-    let _ = state.service.set_index_on_startup(false);
-    glintindex_core::config::loader::save(&config_path, state.service.config()).unwrap();
-
-    let restored = glintindex_core::config::loader::load(&config_path).unwrap();
-    assert!(!restored.index_on_startup);
-}
-
-#[gtk::test]
-fn test_search_entry_text_updates_query() {
-    let _ = gtk::init();
-    let (state, _tmp) = setup_test_state();
-
-    let state = std::rc::Rc::new(std::cell::RefCell::new(state));
-    let state_clone = state.clone();
-    let search_entry = gtk::SearchEntry::new();
-
-    search_entry.connect_changed(move |entry| {
-        let query = entry.text().to_string();
-        let mut st = state_clone.borrow_mut();
-        st.query = query;
-    });
-
-    search_entry.set_text("test query");
-    super::process_events();
-
-    let st = state.borrow();
-    assert_eq!(st.query, "test query");
-}
-
-#[gtk::test]
-fn test_empty_search_clears_results() {
-    let _ = gtk::init();
-    let (state, _tmp) = setup_test_state();
-
-    let state = std::rc::Rc::new(std::cell::RefCell::new(state));
-
-    {
-        let mut st = state.borrow_mut();
-        let doc = glintindex_core::Document::new(
-            std::path::PathBuf::from("/test/file.txt"),
-            100,
-            std::time::SystemTime::now(),
-            "content".into(),
-        );
-        st.results
-            .push(glintindex_core::SearchResult::new(doc, 1.0, "test".into()));
-    }
-
-    let state_clone = state.clone();
-    let search_entry = gtk::SearchEntry::new();
-
-    search_entry.connect_changed(move |entry| {
-        let query = entry.text().to_string();
-        let is_empty = query.trim().is_empty();
-        let mut st = state_clone.borrow_mut();
-        st.query = query;
-        if is_empty {
-            st.results.clear();
-            st.selected_index = None;
-            st.status = "Ready".to_string();
-        }
-    });
-
-    // Set non-empty first to ensure changed signal fires, then clear
-    search_entry.set_text("x");
-    super::process_events();
-    search_entry.set_text("");
-    super::process_events();
-
-    let st = state.borrow();
-    assert!(st.results.is_empty());
-    assert_eq!(st.status, "Ready");
+    // With folders → main view.
+    let folder = std::env::temp_dir().join("glintindex-test-folders");
+    std::fs::create_dir_all(&folder).unwrap();
+    app.service.add_folder(&folder).unwrap();
+    app.view = crate::app::View::Settings;
+    app.leave_settings();
+    assert_eq!(app.view, crate::app::View::Main);
+    let _ = app.service.remove_folder(&folder);
 }

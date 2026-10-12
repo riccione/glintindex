@@ -1,6 +1,6 @@
 //! UI widget modules.
 //!
-//! Each module builds GTK widgets for a specific part of the interface.
+//! Each module draws one egui panel/view for [`crate::app::GlintApp`].
 
 pub mod empty_state;
 pub mod preview;

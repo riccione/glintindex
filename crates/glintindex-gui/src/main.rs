@@ -1,30 +1,26 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-//! GlintIndex GUI — GTK4-based desktop search interface.
+//! GlintIndex GUI — eframe/egui desktop search interface.
 //!
 //! This is the entry point for the graphical user interface.
-//! It uses GTK4 to create a native desktop application with
+//! It uses eframe (egui) to create a native desktop application with
 //! live search capabilities.
 
-mod application;
+mod app;
 mod file_actions;
 mod preview_model;
+mod search;
 mod theme;
 mod ui;
-mod window;
 
 #[cfg(test)]
 mod tests;
 
-// Re-export for #[gtk::test] macro support in binary crate
-#[cfg(test)]
-pub use gtk::test_synced;
-
+use eframe::egui;
 use glintindex_core::config::loader;
 use glintindex_core::logging::{LoggingConfig, init as init_logging};
-use gtk::prelude::*;
 
-fn main() {
+fn main() -> eframe::Result {
     // Load config to get logging settings (fallback to defaults on error)
     let config_path = glintindex_core::AppPaths::new().config_file();
     let config = loader::load(&config_path).unwrap_or_default();
@@ -41,9 +37,19 @@ fn main() {
         max_retention_days: config.logging.max_retention_days,
     });
 
-    // Bridge log crate to tracing for any remaining log:: calls
+    // Bridge log crate to tracing for any remaining log::calls
     tracing_log::LogTracer::init().ok();
 
-    let app = application::build_application();
-    app.run();
+    let options = eframe::NativeOptions {
+        viewport: egui::ViewportBuilder::default()
+            .with_title("GlintIndex")
+            .with_inner_size([1000.0, 700.0]),
+        ..Default::default()
+    };
+
+    eframe::run_native(
+        "GlintIndex",
+        options,
+        Box::new(|cc| Ok(Box::new(app::GlintApp::new(cc)))),
+    )
 }

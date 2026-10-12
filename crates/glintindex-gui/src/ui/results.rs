@@ -1,73 +1,68 @@
-//! Results list UI component.
+//! Results list panel.
 //!
-//! Displays search results as a scrollable list with file names.
+//! Left resizable panel listing search-result file names (the full
+//! path lives in the preview header). Row clicks select a result and
+//! load its preview; the panel width feeds the persisted split ratio.
 
-use std::cell::RefCell;
-use std::rc::Rc;
+use eframe::egui::{self, Label, Sense};
 
-use gtk::prelude::*;
-use gtk::{Box as GtkBox, Label, ListBox, Orientation};
+use crate::app::GlintApp;
 
-use crate::window::WindowState;
+/// Width assumed for the main window when converting the persisted
+/// split ratio to a panel width (matches the GTK default of 1000).
+const REFERENCE_WIDTH: f32 = 1000.0;
 
-/// Builds the results list widget.
-pub fn build(state: &Rc<RefCell<WindowState>>) -> ListBox {
-    let listbox = ListBox::builder()
-        .selection_mode(gtk::SelectionMode::Single)
-        .build();
+/// Draws the results side panel.
+pub fn show(app: &mut GlintApp, ui: &mut egui::Ui) {
+    let ratio = app.service.config().main_split_ratio_f32();
+    let mut new_selection = None;
 
-    // Connect row selection to state update
-    let state_clone = state.clone();
-    listbox.connect_row_selected(move |_listbox, row| {
-        if let Some(row) = row {
-            let index = row.index() as usize;
-            let mut st = state_clone.borrow_mut();
-            st.selected_index = Some(index);
-            if index < st.results.len() {
-                let path = &st.results[index].document.path;
-                st.status = path
-                    .file_name()
-                    .map(|f| f.to_string_lossy().to_string())
-                    .unwrap_or_else(|| path.display().to_string());
-            }
-        }
+    let panel = egui::Panel::left("results_panel")
+        .resizable(true)
+        .default_size((REFERENCE_WIDTH * ratio).clamp(150.0, 850.0))
+        .size_range(egui::Rangef::new(120.0, 900.0));
+
+    let response = panel.show(ui, |ui| {
+        egui::ScrollArea::vertical()
+            .id_salt("results_scroll")
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                for (index, result) in app.results.iter().enumerate() {
+                    let selected = app.selected_index == Some(index);
+                    let label = Label::new(result.document.filename()).truncate();
+                    let response = ui.add(label.sense(Sense::click()));
+                    let response = if selected {
+                        response.highlight()
+                    } else {
+                        response
+                    };
+                    if response.clicked() {
+                        new_selection = Some(index);
+                    }
+                }
+            });
     });
 
-    listbox
-}
-
-/// Refreshes the results list with new search results.
-///
-/// Clears all existing rows and populates the listbox with
-/// new rows for each search result.
-pub fn refresh_results_list(listbox: &ListBox, results: &[glintindex_core::SearchResult]) {
-    // Clear existing rows
-    while let Some(child) = listbox.first_child() {
-        listbox.remove(&child);
+    if let Some(index) = new_selection {
+        app.select_result(index);
     }
 
-    // Add new rows for each result
-    for result in results {
-        let row_content = create_result_row(result);
-        listbox.append(&row_content);
-    }
+    persist_split_ratio(app, ui, response.response.rect.width());
 }
 
-/// Creates a single result row widget.
-///
-/// Shows only the file name; the full path is displayed in the
-/// preview pane header instead (a long path makes the narrow
-/// results list unusable when resized).
-pub fn create_result_row(result: &glintindex_core::SearchResult) -> GtkBox {
-    let filename = result.document.filename().to_string();
-
-    let filename_label = Label::builder()
-        .label(&filename)
-        .halign(gtk::Align::Start)
-        .build();
-
-    let row_content = GtkBox::new(Orientation::Vertical, 2);
-    row_content.append(&filename_label);
-
-    row_content
+/// Persists the panel width as a config split ratio when it settles.
+fn persist_split_ratio(app: &mut GlintApp, ui: &egui::Ui, width: f32) {
+    if width <= 0.0 {
+        return;
+    }
+    let total = ui.ctx().viewport_rect().width();
+    if total <= 0.0 {
+        return;
+    }
+    let ratio = (width / total).clamp(0.15, 0.85);
+    let rounded = (ratio * 100.0).round() / 100.0;
+    if app.last_persisted_ratio != Some(rounded) {
+        let _ = app.service.set_main_split_ratio(rounded);
+        app.last_persisted_ratio = Some(rounded);
+    }
 }
