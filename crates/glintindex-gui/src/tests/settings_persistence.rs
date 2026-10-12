@@ -208,11 +208,11 @@ fn test_settings_nav_width_scales_with_font_size() {
     let (large, _) = settings_nav_width(&mut app, 3);
 
     assert!(
-        (140.0..=420.0).contains(&small),
+        (220.0..=420.0).contains(&small),
         "font 8 width in bounds (got {small})"
     );
     assert!(
-        (140.0..=420.0).contains(&large),
+        (220.0..=420.0).contains(&large),
         "font 32 width in bounds (got {large})"
     );
     assert!(

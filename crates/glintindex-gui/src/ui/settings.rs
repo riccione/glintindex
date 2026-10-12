@@ -99,7 +99,7 @@ fn nav_panel_width(ui: &egui::Ui) -> f32 {
         .iter()
         .map(|page| measure_label_width(ui, page.label(), &font_id))
         .fold(0.0, f32::max);
-    (widest + row_padding).clamp(140.0, 420.0)
+    (widest + row_padding).clamp(220.0, 420.0)
 }
 
 /// No-wrap pixel width of `text` rendered with `font_id`.
