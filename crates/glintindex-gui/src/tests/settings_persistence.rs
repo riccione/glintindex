@@ -2,11 +2,54 @@
 //!
 //! Covers config writes/reads for theme, font size, index-on-startup,
 //! folders, and ignored folders — mostly service-level, plus the
-//! settings-view wiring that persists changes.
+//! settings-view wiring that persists changes and the font-scaled
+//! sidebar width.
 
+use eframe::egui::{self, Color32, TextStyle};
 use glintindex_core::Theme;
 
 use super::{run_ui, setup_test_app, setup_test_service};
+
+/// Runs `frames` headless frames on a fresh context and returns the
+/// persisted settings-nav panel width together with the context (for
+/// follow-up font/text measurements against the same fonts).
+fn settings_nav_width(app: &mut crate::app::GlintApp, frames: usize) -> (f32, egui::Context) {
+    let ctx = egui::Context::default();
+    for _ in 0..frames {
+        let out = ctx.run_ui(egui::RawInput::default(), |ui| app.ui(ui));
+        out.drop_without_applying_deltas();
+    }
+    let width = egui::PanelState::load(&ctx, egui::Id::new("settings_nav"))
+        .expect("settings nav panel state persisted")
+        .size()
+        .x;
+    (width, ctx)
+}
+
+/// No-wrap width of the longest settings page label at the context's
+/// active Body font.
+fn longest_label_width(ctx: &egui::Context) -> f32 {
+    let theme = match ctx.system_theme() {
+        Some(egui::Theme::Dark) => egui::Theme::Dark,
+        _ => egui::Theme::Light,
+    };
+    let font_id = ctx
+        .style_of(theme)
+        .text_styles
+        .get(&TextStyle::Body)
+        .cloned()
+        .unwrap_or_else(|| egui::FontId::proportional(14.0));
+    crate::app::SettingsPage::ALL
+        .iter()
+        .map(|page| {
+            ctx.fonts_mut(|fonts| {
+                fonts.layout_no_wrap(page.label().to_owned(), font_id.clone(), Color32::WHITE)
+            })
+            .size()
+            .x
+        })
+        .fold(0.0, f32::max)
+}
 
 #[test]
 fn test_theme_persists() {
@@ -125,4 +168,55 @@ fn test_leave_settings_returns_to_main_or_empty() {
     app.leave_settings();
     assert_eq!(app.view, crate::app::View::Main);
     let _ = app.service.remove_folder(&folder);
+}
+
+#[test]
+fn test_settings_nav_fits_longest_label_at_max_font() {
+    let (mut app, _tmp) = setup_test_app();
+    app.service.set_font_size(32).unwrap();
+    app.applied_theme = None;
+    app.view = crate::app::View::Settings;
+
+    // Several frames so the theme applied in frame 1 is visible to the
+    // root Ui style from frame 2 onward.
+    let (width, ctx) = settings_nav_width(&mut app, 3);
+
+    let longest = longest_label_width(&ctx);
+    assert!(
+        longest > 100.0,
+        "measurement sanity: longest label at font 32 is substantial (got {longest})"
+    );
+    let row_padding = ctx.style_of(egui::Theme::Light).spacing.button_padding.x * 2.0;
+    assert!(
+        width >= longest + row_padding,
+        "nav width {width} must fit longest label {longest} + row padding {row_padding} at font 32"
+    );
+    assert!(width <= 420.0, "nav width stays within the clamp");
+}
+
+#[test]
+fn test_settings_nav_width_scales_with_font_size() {
+    let (mut app, _tmp) = setup_test_app();
+    app.view = crate::app::View::Settings;
+
+    app.service.set_font_size(8).unwrap();
+    app.applied_theme = None;
+    let (small, _) = settings_nav_width(&mut app, 3);
+
+    app.service.set_font_size(32).unwrap();
+    app.applied_theme = None;
+    let (large, _) = settings_nav_width(&mut app, 3);
+
+    assert!(
+        (140.0..=420.0).contains(&small),
+        "font 8 width in bounds (got {small})"
+    );
+    assert!(
+        (140.0..=420.0).contains(&large),
+        "font 32 width in bounds (got {large})"
+    );
+    assert!(
+        large > small,
+        "nav width grows with font size ({small} -> {large})"
+    );
 }

@@ -29,7 +29,7 @@ const FONT_SIZE_MAX: i32 = 32;
 pub fn show(app: &mut GlintApp, ui: &mut egui::Ui) {
     egui::Panel::top("settings_header").show(ui, |ui| {
         ui.horizontal(|ui| {
-            if ui.button("← Back").clicked() {
+            if ui.button("Back").clicked() {
                 app.leave_settings();
             }
             ui.heading("Settings");
@@ -38,7 +38,7 @@ pub fn show(app: &mut GlintApp, ui: &mut egui::Ui) {
 
     egui::Panel::left("settings_nav")
         .resizable(false)
-        .default_size(160.0)
+        .exact_size(nav_panel_width(ui))
         .show(ui, |ui| {
             for page in SettingsPage::ALL {
                 if ui
@@ -70,6 +70,39 @@ pub fn show(app: &mut GlintApp, ui: &mut egui::Ui) {
 fn page_header(ui: &mut egui::Ui, title: &str) {
     ui.heading(title);
     ui.separator();
+}
+
+/// Width of the settings sidebar for the current body font.
+///
+/// Sized to fit the longest page label on one line (button frame padding
+/// included), so labels never wrap even at the maximum font size (32).
+/// The panel is non-resizable with an exact size, so the width tracks
+/// font-size changes live in both directions.
+fn nav_panel_width(ui: &egui::Ui) -> f32 {
+    let style = ui.style();
+    let font_id = style
+        .text_styles
+        .get(&egui::TextStyle::Body)
+        .cloned()
+        .unwrap_or_else(|| egui::FontId::proportional(14.0));
+    // Horizontal room inside a selectable row: frame padding on both
+    // sides, plus slack for the selected-frame stroke/expansion.
+    let row_padding = style.spacing.button_padding.x * 2.0 + 12.0;
+    let widest = SettingsPage::ALL
+        .iter()
+        .map(|page| measure_label_width(ui, page.label(), &font_id))
+        .fold(0.0, f32::max);
+    (widest + row_padding).clamp(140.0, 420.0)
+}
+
+/// No-wrap pixel width of `text` rendered with `font_id`.
+fn measure_label_width(ui: &egui::Ui, text: &str, font_id: &egui::FontId) -> f32 {
+    ui.ctx()
+        .fonts_mut(|fonts| {
+            fonts.layout_no_wrap(text.to_owned(), font_id.clone(), egui::Color32::WHITE)
+        })
+        .size()
+        .x
 }
 
 /// Label-value info row.
