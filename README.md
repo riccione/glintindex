@@ -257,7 +257,7 @@ glintindex
 
 ### Features
 
-- **Live search**: Results update as you type
+- **Live search**: Results update as you type (queries of 4+ characters)
 - **File preview**: Syntax-highlighted preview with line numbers; search results show only the matching lines plus a configurable number of context lines above and below
 - **File actions**: Open files, reveal in file manager, copy file path
 - **Settings**: Configure theme (light/dark/system), font size, indexed folders, and ignored folders

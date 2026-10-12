@@ -250,6 +250,60 @@ fn test_debounce_not_fired_before_window() {
 }
 
 #[test]
+fn test_dispatch_search_ignores_short_query() {
+    let (mut app, _tmp) = setup_test_app();
+    app.query = "hel".to_string();
+    app.dispatch_search();
+    assert!(
+        app.last_dispatched.is_empty(),
+        "3-char query is not dispatched"
+    );
+
+    // Whitespace does not count toward the minimum.
+    app.query = "  ab  ".to_string();
+    app.dispatch_search();
+    assert!(
+        app.last_dispatched.is_empty(),
+        "trimmed query under 4 not dispatched"
+    );
+}
+
+#[test]
+fn test_debounce_not_fired_for_short_query() {
+    let (mut app, _tmp) = setup_test_app();
+    app.search_text = "hel".to_string();
+    app.on_query_changed();
+    // Age the edit far past the 150ms window — still ineligible.
+    app.last_query_edit = Some(Instant::now() - Duration::from_millis(200));
+
+    let ctx = super::test_context();
+    app.handle_debounce(&ctx);
+    assert!(
+        app.last_dispatched.is_empty(),
+        "debounce never dispatches short queries"
+    );
+}
+
+#[test]
+fn test_on_query_changed_short_query_clears_results() {
+    let (mut app, _tmp) = setup_test_app();
+    app.search_text = "hello".to_string();
+    app.on_query_changed();
+    push_results(&mut app, 2);
+    app.select_result(0);
+    assert!(!app.results.is_empty());
+
+    app.search_text = "hel".to_string();
+    app.on_query_changed();
+
+    assert_eq!(app.query, "hel");
+    assert!(app.results.is_empty(), "results cleared below the minimum");
+    assert_eq!(app.selected_index, None);
+    assert!(app.preview_model.is_none());
+    assert_eq!(app.status, "Type at least 4 characters to search");
+}
+
+#[test]
 fn test_search_result_contains_document_fields() {
     let doc = Document::new(
         std::path::PathBuf::from("/home/user/project/main.rs"),

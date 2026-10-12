@@ -10,6 +10,17 @@ use std::sync::mpsc;
 
 use crate::app::GlintApp;
 
+/// Minimum trimmed characters required before a search is dispatched.
+pub(crate) const MIN_QUERY_CHARS: usize = 4;
+
+/// Returns whether `query` is eligible to be searched.
+///
+/// Trailing/leading whitespace does not count toward
+/// [`MIN_QUERY_CHARS`].
+pub(crate) fn query_eligible(query: &str) -> bool {
+    query.trim().chars().count() >= MIN_QUERY_CHARS
+}
+
 /// Monotonically increasing query ID to discard stale search results.
 static NEXT_QUERY_ID: AtomicU64 = AtomicU64::new(1);
 
@@ -96,10 +107,11 @@ impl GlintApp {
     /// Dispatches a background search for the current query/page.
     ///
     /// Marks the query as dispatched so the debounce path does not
-    /// re-fire. No-op for empty queries or when the channel is gone.
+    /// re-fire. No-op for queries under [`MIN_QUERY_CHARS`] (including
+    /// empty) or when the channel is gone.
     pub(crate) fn dispatch_search(&mut self) {
         let query = self.query.clone();
-        if query.trim().is_empty() {
+        if !query_eligible(&query) {
             return;
         }
         let Some(tx) = self.search_tx.clone() else {
@@ -117,7 +129,8 @@ impl GlintApp {
     /// Handles a change to the search text (typing or programmatic).
     ///
     /// Resets pagination, arms the 150ms debounce, and clears results
-    /// immediately when the input became empty.
+    /// when the input is not yet eligible (under [`MIN_QUERY_CHARS`]),
+    /// with a status hint while the query is non-empty.
     pub(crate) fn on_query_changed(&mut self) {
         if self.search_text == self.query {
             return;
@@ -125,8 +138,11 @@ impl GlintApp {
         self.query = self.search_text.clone();
         self.current_page = 1;
         self.last_query_edit = Some(std::time::Instant::now());
-        if self.query.trim().is_empty() {
+        if !query_eligible(&self.query) {
             self.clear_results();
+            if !self.query.is_empty() {
+                self.status = format!("Type at least {MIN_QUERY_CHARS} characters to search");
+            }
         }
     }
 
@@ -134,7 +150,7 @@ impl GlintApp {
     ///
     /// `on_query_changed` collapses the empty input into a query reset
     /// plus an immediate `clear_results`; the armed debounce is inert
-    /// for an empty query, and in-flight responses are dropped by
+    /// for an ineligible query, and in-flight responses are dropped by
     /// [`GlintApp::drain_search_channel`].
     pub(crate) fn clear_search(&mut self) {
         self.search_text.clear();
@@ -165,8 +181,11 @@ impl GlintApp {
     }
 
     /// Fires the debounced search once the 150ms window has elapsed.
+    ///
+    /// Ineligible queries return before any repaint is armed, so a
+    /// short query never spins the frame loop.
     pub(crate) fn handle_debounce(&mut self, ctx: &eframe::egui::Context) {
-        if self.query.trim().is_empty() || self.last_dispatched == self.query {
+        if !query_eligible(&self.query) || self.last_dispatched == self.query {
             return;
         }
         let Some(edited_at) = self.last_query_edit else {

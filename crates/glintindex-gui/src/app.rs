@@ -259,9 +259,10 @@ impl GlintApp {
         if query_id < self.latest_applied_id {
             return;
         }
-        // Results from a search dispatched before the input was cleared
-        // must not repopulate the list.
-        if self.query.trim().is_empty() {
+        // Results from a search dispatched before the input became
+        // ineligible (cleared or under the minimum length) must not
+        // repopulate the list.
+        if !search::query_eligible(&self.query) {
             return;
         }
         self.latest_applied_id = query_id;

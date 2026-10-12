@@ -3,9 +3,9 @@
 //! Top panel with the settings button and the debounced search entry.
 //! The search `TextEdit` is bound to `app.search_text`; changes funnel
 //! through [`GlintApp::on_query_changed`] (pagination reset + debounce)
-//! and Enter dispatches immediately, bypassing the debounce. A cross
-//! button overlaid on the field's right edge clears the input while
-//! text is present.
+//! and Enter dispatches immediately, bypassing the debounce — both are
+//! gated on the 4-character query minimum. A cross button overlaid on
+//! the field's right edge clears the input while text is present.
 
 use eframe::egui::{self, Key};
 
