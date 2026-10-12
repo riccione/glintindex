@@ -55,8 +55,22 @@ pub struct AppConfig {
     /// Stored as a percentage (0–100) to avoid f32 precision issues.
     /// A value of 50 means equal widths. Range: 15–85.
     /// Default: 50.
+    ///
+    /// Legacy: the GUI now stores the sidebar width in pixels
+    /// ([`AppConfig::main_split_width`]); this ratio is only consulted
+    /// when the pixel width is unset (0) and is kept in sync for older
+    /// builds.
     #[serde(default = "default_main_split_ratio")]
     pub main_split_ratio: u32,
+    /// Left sidebar width in pixels as last dragged by the user.
+    ///
+    /// `0` means unset — the width is derived from
+    /// [`AppConfig::main_split_ratio`] instead (GTK-era configs).
+    /// Written by the GUI when the divider is dragged; window resize
+    /// and startup never touch it.
+    /// Default: 0.
+    #[serde(default)]
+    pub main_split_width: u32,
     /// Number of documents to accumulate before committing the index.
     ///
     /// Incremental commits improve crash resilience, reduce peak memory,
@@ -239,6 +253,7 @@ impl Default for AppConfig {
             recent_searches: Vec::new(),
             font_size: default_font_size(),
             main_split_ratio: default_main_split_ratio(),
+            main_split_width: 0,
             commit_interval: default_commit_interval(),
             index_on_startup: default_index_on_startup(),
             fuzzy_search: default_fuzzy_search(),
@@ -290,6 +305,19 @@ impl AppConfig {
         (self.main_split_ratio as f32 / 100.0).clamp(0.15, 0.85)
     }
 
+    /// Returns the left sidebar width in pixels.
+    ///
+    /// Uses the stored pixel width when set; otherwise derives it from
+    /// the legacy ratio (percent of the GTK 1000pt reference window:
+    /// ratio 50 → 500px).
+    pub fn main_split_width(&self) -> u32 {
+        if self.main_split_width > 0 {
+            self.main_split_width
+        } else {
+            self.main_split_ratio * 10
+        }
+    }
+
     /// Returns the preview context line count, clamped to [0, 50].
     pub fn clamped_preview_context_lines(&self) -> usize {
         self.preview_context_lines.clamp(0, 50)
@@ -313,6 +341,7 @@ mod tests {
         assert_eq!(config.commit_interval, 500);
         assert!(config.index_on_startup);
         assert!(config.fuzzy_search);
+        assert_eq!(config.main_split_width, 0);
         assert_eq!(config.logging.level, "error");
         assert_eq!(config.logging.max_retention_days, 7);
         assert_eq!(config.indexing.max_file_size_mb, 50);
@@ -512,5 +541,31 @@ max_page_size = 200
         let toml_str = toml::to_string(&config).unwrap();
         let restored: AppConfig = toml::from_str(&toml_str).unwrap();
         assert_eq!(config.pagination, restored.pagination);
+    }
+
+    #[test]
+    fn main_split_width_defaults_to_zero() {
+        assert_eq!(AppConfig::default().main_split_width(), 500);
+        let config: AppConfig = toml::from_str(
+            "indexed_folders = []\nignored_folders = []\nindex_directory = \"/tmp/t\"\ntheme = \"system\"\nmax_preview_size = 200",
+        )
+        .unwrap();
+        assert_eq!(config.main_split_width, 0, "missing key means unset");
+    }
+
+    #[test]
+    fn main_split_width_prefers_stored_pixels_over_legacy_ratio() {
+        let mut config = AppConfig {
+            main_split_ratio: 18,
+            ..Default::default()
+        };
+        assert_eq!(
+            config.main_split_width(),
+            180,
+            "legacy fallback: ratio% of 1000pt"
+        );
+
+        config.main_split_width = 430;
+        assert_eq!(config.main_split_width(), 430);
     }
 }

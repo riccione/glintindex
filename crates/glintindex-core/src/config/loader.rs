@@ -120,6 +120,12 @@ index_on_startup = true
 # Default: true
 fuzzy_search = true
 
+# Left sidebar width in pixels as dragged by the user.
+# Written when the divider is dragged; startup and window resize never
+# touch it. 0 = derive from main_split_ratio (legacy).
+# Default: 0
+main_split_width = 0
+
 [logging]
 # Log level: "off", "error", "warn", "info", "debug", "trace"
 # Default: "error" (silent for end users)

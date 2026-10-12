@@ -2,32 +2,21 @@
 //!
 //! Left resizable panel listing search-result file names (the full
 //! path lives in the preview header). Row clicks select a result and
-//! load its preview; the panel width feeds the persisted split ratio.
+//! load its preview; the panel width (pixels) feeds the persisted
+//! config setting.
 
 use eframe::egui::{self, Label, Sense};
 
 use crate::app::GlintApp;
 
-/// Fallback basis for restoring the split ratio when the viewport
-/// width is unknown (0). Normally the real viewport width is used so
-/// the stored ratio round-trips against the same denominator that
-/// persisting uses.
-const REFERENCE_WIDTH: f32 = 1000.0;
-
 /// Draws the results side panel.
 pub fn show(app: &mut GlintApp, ui: &mut egui::Ui) {
-    let ratio = app.service.config().main_split_ratio_f32();
-    let viewport_w = ui.ctx().viewport_rect().width();
-    let basis_w = if viewport_w > 0.0 {
-        viewport_w
-    } else {
-        REFERENCE_WIDTH
-    };
+    let saved_width = app.service.config().main_split_width();
     let mut new_selection = None;
 
     let panel = egui::Panel::left("results_panel")
         .resizable(true)
-        .default_size(basis_w * ratio)
+        .default_size(saved_width as f32)
         .size_range(egui::Rangef::new(120.0, 900.0));
 
     let response = panel.show(ui, |ui| {
@@ -69,32 +58,30 @@ pub fn show(app: &mut GlintApp, ui: &mut egui::Ui) {
         app.select_result(index);
     }
 
-    persist_split_ratio(app, ui, response.response.rect.width());
+    persist_sidebar_width(app, ui, response.response.rect.width());
 }
 
-/// Persists the panel width as a config split ratio when it settles.
+/// Persists the panel width (pixels) when the user actually drags.
 ///
-/// The first frame only records the ratio: startup must never rewrite
-/// `main_split_ratio`. Writing back `width / viewport` on launch used
-/// to corrupt the stored value whenever the window was not
-/// `REFERENCE_WIDTH` wide (the restore side hardcoded 1000 while this
-/// measured the real viewport), decaying the ratio to its floor.
-fn persist_split_ratio(app: &mut GlintApp, ui: &egui::Ui, width: f32) {
+/// The first frame only records (width, viewport): startup must never
+/// rewrite the config. After that, a write happens only when the panel
+/// width changed while the viewport stayed the same — window resizes
+/// and startup viewport settling are denominator changes, not user
+/// drags, and used to corrupt the stored value.
+fn persist_sidebar_width(app: &mut GlintApp, ui: &egui::Ui, width: f32) {
     if width <= 0.0 {
         return;
     }
-    let total = ui.ctx().viewport_rect().width();
-    if total <= 0.0 {
+    let viewport = ui.ctx().viewport_rect().width();
+    if viewport <= 0.0 {
         return;
     }
-    let ratio = (width / total).clamp(0.15, 0.85);
-    let rounded = (ratio * 100.0).round() / 100.0;
-    match app.last_measured_ratio {
-        None => app.last_measured_ratio = Some(rounded),
-        Some(prev) if prev != rounded => {
-            let _ = app.service.set_main_split_ratio(rounded);
-            app.last_measured_ratio = Some(rounded);
-        }
-        Some(_) => {}
+    let viewport_unchanged = app.last_measured_viewport == Some(viewport);
+    if viewport_unchanged && app.last_measured_width != Some(width) {
+        let _ = app
+            .service
+            .set_main_split_width(width.round().clamp(120.0, 900.0) as u32);
     }
+    app.last_measured_width = Some(width);
+    app.last_measured_viewport = Some(viewport);
 }

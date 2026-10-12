@@ -140,11 +140,17 @@ pub struct GlintApp {
     /// releases the slider handle, presses Enter, or clicks outside
     /// the value box.
     pub font_size_draft: Option<i32>,
-    /// Rounded split ratio measured during the previous results frame.
+    /// Panel width (points) measured during the previous results frame.
     ///
     /// `None` until the first results frame — that frame only records
-    /// the ratio so startup never rewrites the config.
-    pub last_measured_ratio: Option<f32>,
+    /// so startup never rewrites the config.
+    pub last_measured_width: Option<f32>,
+    /// Viewport width measured during the previous results frame.
+    ///
+    /// Paired with [`Self::last_measured_width`]: a width change only
+    /// persists when the viewport is unchanged, so window resizes and
+    /// startup viewport settling never rewrite the saved width.
+    pub last_measured_viewport: Option<f32>,
 }
 
 impl GlintApp {
@@ -206,7 +212,8 @@ impl GlintApp {
             empty_error: None,
             applied_theme: None,
             font_size_draft: None,
-            last_measured_ratio: None,
+            last_measured_width: None,
+            last_measured_viewport: None,
         };
 
         app.startup_indexing();
