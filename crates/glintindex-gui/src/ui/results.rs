@@ -29,7 +29,12 @@ pub fn show(app: &mut GlintApp, ui: &mut egui::Ui) {
             .show(ui, |ui| {
                 for (index, result) in app.results.iter().enumerate() {
                     let selected = app.selected_index == Some(index);
-                    let label = Label::new(result.document.filename()).truncate();
+                    // selectable(false): rows are list items, not text —
+                    // keeps egui's label text-selection from showing an
+                    // I-beam cursor over them (and lets drag scroll).
+                    let label = Label::new(result.document.filename())
+                        .truncate()
+                        .selectable(false);
                     let response = ui.add(label.sense(Sense::click()));
                     let response = if selected {
                         response.highlight()
