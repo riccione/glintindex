@@ -28,24 +28,37 @@ pub fn show(app: &mut GlintApp, ui: &mut egui::Ui) {
                     .desired_width(f32::INFINITY),
             );
 
-            // Clear button overlaid on the right edge of the field,
-            // shown only while there is something to clear.
+            // Clear icon overlaid on the right edge of the field, shown
+            // only while there is something to clear. Anchored inside the
+            // field's inner margin (TextEdit default 4/2) and drawn with
+            // the painter so fallback-font metrics (NotoEmoji ✖ is 1.27em
+            // wide, 1.36em tall) cannot push it outside the field.
             if !app.search_text.is_empty() {
-                let side = ui.spacing().interact_size.y;
-                let rect = egui::Rect::from_center_size(
-                    response.rect.right_center()
-                        - egui::vec2(side / 2.0 + ui.spacing().item_spacing.x, 0.0),
+                let field = response.rect;
+                let side = (field.height() - 6.0).max(14.0);
+                let rect = egui::Rect::from_min_size(
+                    egui::pos2(field.right() - 4.0 - side, field.center().y - side / 2.0),
                     egui::vec2(side, side),
                 );
-                let clear = ui.put(
-                    rect,
-                    egui::Button::new(egui::RichText::new("✖")).min_size(egui::vec2(side, side)),
+                let clear = ui
+                    .allocate_rect(rect, egui::Sense::click())
+                    .on_hover_text("Clear search")
+                    .on_hover_cursor(egui::CursorIcon::PointingHand);
+                if clear.hovered() || clear.is_pointer_button_down_on() {
+                    ui.painter()
+                        .rect_filled(rect, 3.0, ui.visuals().faint_bg_color);
+                }
+                ui.painter().text(
+                    rect.center(),
+                    egui::Align2::CENTER_CENTER,
+                    "✖",
+                    egui::FontId::proportional(side * 0.7),
+                    ui.visuals().text_color(),
                 );
                 if clear.clicked() {
                     app.clear_search();
                     response.request_focus();
                 }
-                clear.on_hover_text("Clear search");
             }
 
             // Enter: immediate search, bypassing the debounce window.
