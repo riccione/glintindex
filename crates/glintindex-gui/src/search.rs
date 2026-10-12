@@ -130,6 +130,17 @@ impl GlintApp {
         }
     }
 
+    /// Clears the search input and resets query/results (clear button).
+    ///
+    /// `on_query_changed` collapses the empty input into a query reset
+    /// plus an immediate `clear_results`; the armed debounce is inert
+    /// for an empty query, and in-flight responses are dropped by
+    /// [`GlintApp::drain_search_channel`].
+    pub(crate) fn clear_search(&mut self) {
+        self.search_text.clear();
+        self.on_query_changed();
+    }
+
     /// Clears results, selection, preview, and status for an empty query.
     pub(crate) fn clear_results(&mut self) {
         self.results.clear();

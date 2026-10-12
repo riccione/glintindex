@@ -106,6 +106,52 @@ fn test_on_query_changed_resets_pagination() {
 }
 
 #[test]
+fn test_clear_search_resets_input_and_results() {
+    let (mut app, _tmp) = setup_test_app();
+    app.search_text = "old query".to_string();
+    app.on_query_changed();
+    assert_eq!(app.query, "old query");
+    push_results(&mut app, 2);
+    app.select_result(0);
+    app.current_page = 2;
+    app.last_dispatched = "old query".to_string();
+
+    app.clear_search();
+
+    assert!(app.search_text.is_empty(), "input is cleared");
+    assert!(app.query.is_empty(), "query collapses to empty");
+    assert!(app.results.is_empty(), "results are cleared");
+    assert_eq!(app.selected_index, None);
+    assert!(app.selected_path.is_none());
+    assert!(app.preview_model.is_none());
+    assert_eq!(app.total_results, 0);
+    assert_eq!(app.current_page, 1);
+    assert_eq!(app.last_dispatched, String::new());
+    assert_eq!(app.status, "No results found");
+}
+
+#[test]
+fn test_toolbar_renders_clear_button_without_altering_input() {
+    let (mut app, tmp) = setup_test_app();
+    let folder = tmp.path().join("docs");
+    std::fs::create_dir(&folder).unwrap();
+    app.service.add_folder(&folder).unwrap();
+    app.view = crate::app::View::Main;
+
+    // Non-empty input exercises the overlaid clear button; rendering
+    // must not clear or otherwise mutate the typed text.
+    app.search_text = "hello".to_string();
+    run_ui(&mut app, 2);
+    assert_eq!(app.search_text, "hello");
+
+    // Empty input hides the button; still renders cleanly.
+    app.search_text.clear();
+    run_ui(&mut app, 2);
+    assert!(app.search_text.is_empty());
+    let _ = app.service.remove_folder(&folder);
+}
+
+#[test]
 fn test_apply_search_response_guards() {
     let (mut app, _tmp) = setup_test_app();
     app.per_page = 20;
