@@ -21,9 +21,9 @@ const RUST_VERSION: &str = env!("CARGO_PKG_RUST_VERSION");
 const APP_LICENSE: &str = env!("CARGO_PKG_LICENSE");
 
 /// Minimum allowed font size.
-const FONT_SIZE_MIN: i32 = 8;
+pub(crate) const FONT_SIZE_MIN: i32 = 8;
 /// Maximum allowed font size.
-const FONT_SIZE_MAX: i32 = 32;
+pub(crate) const FONT_SIZE_MAX: i32 = 32;
 
 /// Draws the settings view.
 pub fn show(app: &mut GlintApp, ui: &mut egui::Ui) {
@@ -46,12 +46,18 @@ pub fn show(app: &mut GlintApp, ui: &mut egui::Ui) {
                     .clicked()
                 {
                     app.settings_page = page;
+                    if page != SettingsPage::Appearance {
+                        // Clicking a nav item while a font change is
+                        // pending counts as "clicked outside": apply it.
+                        app.commit_font_size();
+                    }
                 }
             }
         });
 
     egui::CentralPanel::default().show(ui, |ui| {
         if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+            app.discard_font_size();
             app.leave_settings();
             return;
         }
@@ -154,14 +160,28 @@ fn appearance_page(app: &mut GlintApp, ui: &mut egui::Ui) {
     ui.add_space(8.0);
 
     ui.label(RichText::new("Font Size").strong());
-    let mut size = app.service.config().clamped_font_size() as i32;
+    let current = app.service.config().clamped_font_size() as i32;
+    let mut size = app.font_size_draft.unwrap_or(current);
     let slider = ui.add(
         egui::Slider::new(&mut size, FONT_SIZE_MIN..=FONT_SIZE_MAX)
             .text("Application font size (8–32)"),
     );
     if slider.changed() {
-        let _ = app.service.set_font_size(size as u32);
-        app.applied_theme = None;
+        // Stage only: the slider and value box show the draft live,
+        // but the font is applied on release / Enter / click-outside.
+        app.stage_font_size(size);
+    }
+    let escaped = ui.input(|i| i.key_pressed(egui::Key::Escape));
+    if (slider.drag_stopped() || slider.lost_focus()) && !escaped {
+        app.commit_font_size();
+    } else if app.font_size_draft.is_some()
+        && !slider.has_focus()
+        && !slider.dragged()
+        && !slider.changed()
+    {
+        // Self-heal: a draft from an interaction that ended without a
+        // release/blur event (e.g. an aborted drag) applies now.
+        app.commit_font_size();
     }
 }
 

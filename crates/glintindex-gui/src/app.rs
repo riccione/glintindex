@@ -117,6 +117,13 @@ pub struct GlintApp {
     // ── Appearance ────────────────────────────────────────────
     /// Last applied `(theme, font_size)`; `None` forces a re-apply.
     pub applied_theme: Option<(glintindex_core::Theme, u32)>,
+    /// Font size staged by the settings UI but not yet applied.
+    ///
+    /// The font-size slider stages every change here; the draft is
+    /// persisted (and the theme/font re-applied) only when the user
+    /// releases the slider handle, presses Enter, or clicks outside
+    /// the value box.
+    pub font_size_draft: Option<i32>,
     /// Last rounded split ratio written to config.
     pub last_persisted_ratio: Option<f32>,
 }
@@ -173,6 +180,7 @@ impl GlintApp {
             empty_indexing: false,
             empty_error: None,
             applied_theme: None,
+            font_size_draft: None,
             last_persisted_ratio: None,
         };
 
@@ -365,8 +373,38 @@ impl GlintApp {
         self.preview_model = Some(crate::preview_model::build_preview_model(&output));
     }
 
+    /// Stages a font-size change without applying it yet.
+    ///
+    /// Called for every slider/input change; the staged value becomes
+    /// effective only via [`Self::commit_font_size`].
+    pub fn stage_font_size(&mut self, size: i32) {
+        let min = crate::ui::settings::FONT_SIZE_MIN;
+        let max = crate::ui::settings::FONT_SIZE_MAX;
+        self.font_size_draft = Some(size.clamp(min, max));
+    }
+
+    /// Applies a staged font-size change, if any differs from config.
+    pub fn commit_font_size(&mut self) {
+        let Some(size) = self.font_size_draft.take() else {
+            return;
+        };
+        if size == self.service.config().clamped_font_size() as i32 {
+            return;
+        }
+        let _ = self.service.set_font_size(size as u32);
+        self.applied_theme = None;
+    }
+
+    /// Drops a staged font-size change without applying it (Escape).
+    pub fn discard_font_size(&mut self) {
+        self.font_size_draft = None;
+    }
+
     /// Leaves settings, returning to main or empty depending on folders.
     pub fn leave_settings(&mut self) {
+        // Leaving via Back or a nav click counts as "clicked outside":
+        // apply any pending font-size change (Escape discards first).
+        self.commit_font_size();
         self.view = if self.service.has_enabled_folders() {
             View::Main
         } else {

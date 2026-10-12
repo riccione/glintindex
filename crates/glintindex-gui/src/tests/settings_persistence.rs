@@ -220,3 +220,96 @@ fn test_settings_nav_width_scales_with_font_size() {
         "nav width grows with font size ({small} -> {large})"
     );
 }
+
+#[test]
+fn test_font_size_staged_until_commit() {
+    let (mut app, _tmp) = setup_test_app();
+    // Render one frame so sync_theme marks the current font as applied.
+    run_ui(&mut app, 1);
+    let original = app.service.config().clamped_font_size();
+    assert!(app.applied_theme.is_some());
+
+    app.stage_font_size(20);
+    assert_eq!(app.font_size_draft, Some(20), "draft is staged");
+    assert_eq!(
+        app.service.config().clamped_font_size(),
+        original,
+        "staging must not write config"
+    );
+    assert!(
+        app.applied_theme.is_some(),
+        "staging must not invalidate the applied theme"
+    );
+
+    app.commit_font_size();
+    assert_eq!(app.service.config().clamped_font_size(), 20);
+    assert_eq!(app.font_size_draft, None, "commit consumes the draft");
+    assert!(
+        app.applied_theme.is_none(),
+        "commit invalidates applied theme so fonts re-apply"
+    );
+}
+
+#[test]
+fn test_font_size_commit_unchanged_value_is_noop() {
+    let (mut app, _tmp) = setup_test_app();
+    run_ui(&mut app, 1);
+    let current = app.service.config().clamped_font_size();
+    assert!(app.applied_theme.is_some());
+
+    // Clicking the value box and clicking away without editing.
+    app.stage_font_size(current as i32);
+    app.commit_font_size();
+
+    assert_eq!(app.font_size_draft, None);
+    assert!(
+        app.applied_theme.is_some(),
+        "committing an unchanged value must not force a font re-apply"
+    );
+}
+
+#[test]
+fn test_font_size_discard_reverts_staged_value() {
+    let (mut app, _tmp) = setup_test_app();
+    let original = app.service.config().clamped_font_size();
+
+    app.stage_font_size(20);
+    app.discard_font_size(); // Escape path: drop before leave_settings.
+    assert_eq!(app.font_size_draft, None);
+
+    app.leave_settings();
+    assert_eq!(
+        app.service.config().clamped_font_size(),
+        original,
+        "discarded draft must never reach config"
+    );
+}
+
+#[test]
+fn test_leave_settings_commits_pending_font_size() {
+    let (mut app, _tmp) = setup_test_app();
+    app.view = crate::app::View::Settings;
+
+    // Back button / nav click: leaving counts as "clicked outside".
+    app.stage_font_size(20);
+    app.leave_settings();
+
+    assert_eq!(app.service.config().clamped_font_size(), 20);
+    assert_eq!(app.font_size_draft, None);
+}
+
+#[test]
+fn test_font_size_draft_self_heals_on_appearance_render() {
+    let (mut app, _tmp) = setup_test_app();
+    app.view = crate::app::View::Settings;
+    app.settings_page = crate::app::SettingsPage::Appearance;
+
+    // A draft left over from an interaction that ended without a
+    // release/blur event applies on the next appearance render.
+    app.stage_font_size(20);
+    run_ui(&mut app, 1);
+
+    assert_eq!(app.service.config().clamped_font_size(), 20);
+    assert_eq!(app.font_size_draft, None);
+    assert!(app.applied_theme.is_none());
+}
