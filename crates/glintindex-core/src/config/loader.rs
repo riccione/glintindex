@@ -114,6 +114,12 @@ commit_interval = 500
 # Default: true
 index_on_startup = true
 
+# Tolerate single-character typos in searches (fuzzy matching).
+# When disabled, partial-word (starts-with) matching still works but
+# only against exact index terms — no distance-1 neighbors.
+# Default: true
+fuzzy_search = true
+
 [logging]
 # Log level: "off", "error", "warn", "info", "debug", "trace"
 # Default: "error" (silent for end users)

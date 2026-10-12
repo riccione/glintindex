@@ -72,6 +72,13 @@ pub struct AppConfig {
     /// Default: true.
     #[serde(default = "default_index_on_startup")]
     pub index_on_startup: bool,
+    /// Whether searches tolerate single-character typos (fuzzy matching).
+    ///
+    /// When disabled, searches still match partial words (starts-with)
+    /// but only against exact index terms — no distance-1 neighbors.
+    /// Default: true.
+    #[serde(default = "default_fuzzy_search")]
+    pub fuzzy_search: bool,
     /// Logging configuration.
     #[serde(default)]
     pub logging: LoggingSettings,
@@ -109,6 +116,11 @@ fn default_commit_interval() -> usize {
 
 /// Returns the default startup auto-index preference for deserialization.
 fn default_index_on_startup() -> bool {
+    true
+}
+
+/// Returns the default fuzzy-search preference for deserialization.
+fn default_fuzzy_search() -> bool {
     true
 }
 
@@ -229,6 +241,7 @@ impl Default for AppConfig {
             main_split_ratio: default_main_split_ratio(),
             commit_interval: default_commit_interval(),
             index_on_startup: default_index_on_startup(),
+            fuzzy_search: default_fuzzy_search(),
             logging: LoggingSettings::default(),
             indexing: IndexingSettings::default(),
             pagination: PaginationSettings::default(),
@@ -299,6 +312,7 @@ mod tests {
         assert_eq!(config.font_size, 12);
         assert_eq!(config.commit_interval, 500);
         assert!(config.index_on_startup);
+        assert!(config.fuzzy_search);
         assert_eq!(config.logging.level, "error");
         assert_eq!(config.logging.max_retention_days, 7);
         assert_eq!(config.indexing.max_file_size_mb, 50);

@@ -774,6 +774,20 @@ impl ApplicationService {
         self.save_config()?;
         Ok(())
     }
+
+    /// Updates the fuzzy-search (typo tolerance) preference.
+    ///
+    /// Takes effect on the next search; frontends read the value when
+    /// building a [`crate::SearchQuery`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the configuration cannot be saved.
+    pub fn set_fuzzy_search(&mut self, enabled: bool) -> Result<()> {
+        self.config.fuzzy_search = enabled;
+        self.save_config()?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -1356,5 +1370,22 @@ mod tests {
 
         let reloaded = crate::config::loader::load(&config_path).unwrap();
         assert!(!reloaded.index_on_startup);
+    }
+
+    #[test]
+    fn set_fuzzy_search_persists() {
+        let tmp = TempDir::new().unwrap();
+        let config_path = tmp.path().join("config.toml");
+        let config = test_config(&tmp);
+        crate::config::loader::save(&config_path, &config).unwrap();
+
+        let mut service = ApplicationService::with_config_path(&config_path).unwrap();
+        assert!(service.config().fuzzy_search);
+
+        service.set_fuzzy_search(false).unwrap();
+        assert!(!service.config().fuzzy_search);
+
+        let reloaded = crate::config::loader::load(&config_path).unwrap();
+        assert!(!reloaded.fuzzy_search);
     }
 }

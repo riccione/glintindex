@@ -26,7 +26,8 @@ pub fn execute(config_path: &str, args: SearchArgs) -> Result<()> {
     let effective_limit = args
         .limit
         .unwrap_or(service.config().pagination.default_page_size);
-    let query = SearchQuery::paged(&args.query, args.page, effective_limit);
+    let query = SearchQuery::paged(&args.query, args.page, effective_limit)
+        .with_fuzzy(service.config().fuzzy_search);
     let response = service.search(&query).context("Search failed")?;
 
     if response.is_empty() {
