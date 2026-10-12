@@ -10,6 +10,7 @@ use crate::app::GlintApp;
 mod preview_rendering;
 mod search_flow;
 mod settings_persistence;
+mod split_persistence;
 mod theme_switching;
 
 /// Creates a temporary ApplicationService with isolated state.

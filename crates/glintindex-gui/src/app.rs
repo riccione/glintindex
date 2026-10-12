@@ -140,8 +140,11 @@ pub struct GlintApp {
     /// releases the slider handle, presses Enter, or clicks outside
     /// the value box.
     pub font_size_draft: Option<i32>,
-    /// Last rounded split ratio written to config.
-    pub last_persisted_ratio: Option<f32>,
+    /// Rounded split ratio measured during the previous results frame.
+    ///
+    /// `None` until the first results frame — that frame only records
+    /// the ratio so startup never rewrites the config.
+    pub last_measured_ratio: Option<f32>,
 }
 
 impl GlintApp {
@@ -203,7 +206,7 @@ impl GlintApp {
             empty_error: None,
             applied_theme: None,
             font_size_draft: None,
-            last_persisted_ratio: None,
+            last_measured_ratio: None,
         };
 
         app.startup_indexing();

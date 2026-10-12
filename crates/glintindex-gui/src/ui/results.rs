@@ -8,18 +8,26 @@ use eframe::egui::{self, Label, Sense};
 
 use crate::app::GlintApp;
 
-/// Width assumed for the main window when converting the persisted
-/// split ratio to a panel width (matches the GTK default of 1000).
+/// Fallback basis for restoring the split ratio when the viewport
+/// width is unknown (0). Normally the real viewport width is used so
+/// the stored ratio round-trips against the same denominator that
+/// persisting uses.
 const REFERENCE_WIDTH: f32 = 1000.0;
 
 /// Draws the results side panel.
 pub fn show(app: &mut GlintApp, ui: &mut egui::Ui) {
     let ratio = app.service.config().main_split_ratio_f32();
+    let viewport_w = ui.ctx().viewport_rect().width();
+    let basis_w = if viewport_w > 0.0 {
+        viewport_w
+    } else {
+        REFERENCE_WIDTH
+    };
     let mut new_selection = None;
 
     let panel = egui::Panel::left("results_panel")
         .resizable(true)
-        .default_size((REFERENCE_WIDTH * ratio).clamp(150.0, 850.0))
+        .default_size(basis_w * ratio)
         .size_range(egui::Rangef::new(120.0, 900.0));
 
     let response = panel.show(ui, |ui| {
@@ -65,6 +73,12 @@ pub fn show(app: &mut GlintApp, ui: &mut egui::Ui) {
 }
 
 /// Persists the panel width as a config split ratio when it settles.
+///
+/// The first frame only records the ratio: startup must never rewrite
+/// `main_split_ratio`. Writing back `width / viewport` on launch used
+/// to corrupt the stored value whenever the window was not
+/// `REFERENCE_WIDTH` wide (the restore side hardcoded 1000 while this
+/// measured the real viewport), decaying the ratio to its floor.
 fn persist_split_ratio(app: &mut GlintApp, ui: &egui::Ui, width: f32) {
     if width <= 0.0 {
         return;
@@ -75,8 +89,12 @@ fn persist_split_ratio(app: &mut GlintApp, ui: &egui::Ui, width: f32) {
     }
     let ratio = (width / total).clamp(0.15, 0.85);
     let rounded = (ratio * 100.0).round() / 100.0;
-    if app.last_persisted_ratio != Some(rounded) {
-        let _ = app.service.set_main_split_ratio(rounded);
-        app.last_persisted_ratio = Some(rounded);
+    match app.last_measured_ratio {
+        None => app.last_measured_ratio = Some(rounded),
+        Some(prev) if prev != rounded => {
+            let _ = app.service.set_main_split_ratio(rounded);
+            app.last_measured_ratio = Some(rounded);
+        }
+        Some(_) => {}
     }
 }
