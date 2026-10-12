@@ -25,6 +25,10 @@ pub struct PreviewConfig {
     pub fallback_lines: usize,
     /// Hard cap on the total number of lines emitted for one preview.
     pub max_total_lines: usize,
+    /// Maximum rendered characters per line. Longer lines are truncated
+    /// with an ellipsis so renderers bound their layout work — a single
+    /// minified line can otherwise be megabytes wide.
+    pub max_line_chars: usize,
 }
 
 impl Default for PreviewConfig {
@@ -34,8 +38,22 @@ impl Default for PreviewConfig {
             context_lines: 3,
             fallback_lines: 50,
             max_total_lines: 500,
+            max_line_chars: 500,
         }
     }
+}
+
+/// Returns the longest prefix of `text` that is at most `max` bytes,
+/// cut at a UTF-8 char boundary.
+fn truncate_at_char_boundary(text: &str, max: usize) -> &str {
+    if text.len() <= max {
+        return text;
+    }
+    let mut cut = max;
+    while cut > 0 && !text.is_char_boundary(cut) {
+        cut -= 1;
+    }
+    &text[..cut]
 }
 
 /// Complete preview output for a file.
@@ -119,16 +137,26 @@ impl PreviewService {
     /// This is the core rendering pipeline. Use [`load_preview`] when you
     /// need to read a file from disk first, or call this directly when
     /// you already have the text (e.g., from a search result).
+    ///
+    /// Input beyond [`PreviewConfig::max_file_size`] is cut at a char
+    /// boundary before highlighting and reported via `truncated`.
     pub fn generate_preview(&self, text: &str, path: &Path, query: &str) -> PreviewOutput {
-        let lines = self.highlight_content(text, path);
+        // Search results carry the full file content (up to
+        // `indexing.max_file_size_mb`). Bound it to the same cap the disk
+        // loader enforces so syntax highlighting and match scanning stay
+        // proportional to the preview size, not the file size.
+        let original_size = text.len() as u64;
+        let cap = usize::try_from(self.config.max_file_size).unwrap_or(usize::MAX);
+        let bounded = truncate_at_char_boundary(text, cap);
+        let lines = self.highlight_content(bounded, path);
         let mut output = PreviewOutput {
             path: path.to_path_buf(),
             lines,
-            truncated: false,
+            truncated: bounded.len() < text.len(),
             encoding: Encoding::Utf8,
             is_binary: false,
             error: None,
-            original_size: text.len() as u64,
+            original_size,
         };
         self.finalize_preview(&mut output, query);
         output
@@ -210,6 +238,45 @@ impl PreviewService {
     fn finalize_preview(&self, output: &mut PreviewOutput, query: &str) {
         self.apply_search_highlights(output, query);
         self.filter_to_context(output, query);
+        self.cap_line_lengths(output);
+    }
+
+    /// Truncates overlong lines so renderers lay out a bounded amount of
+    /// text per frame.
+    fn cap_line_lengths(&self, output: &mut PreviewOutput) {
+        let max = self.config.max_line_chars;
+        if max == 0 {
+            return;
+        }
+        for line in &mut output.lines {
+            if line.text.len() <= max {
+                continue;
+            }
+            let cut = truncate_at_char_boundary(&line.text, max).len();
+            // Clamp offsets while the byte prefix is still intact, then
+            // cut the text and append an ellipsis.
+            line.syntax_spans.retain_mut(|span| {
+                if span.0 >= cut {
+                    return false;
+                }
+                span.1 = span.1.min(cut);
+                true
+            });
+            line.match_highlights.retain_mut(|m| {
+                if m.start >= cut {
+                    return false;
+                }
+                m.end = m.end.min(cut);
+                true
+            });
+            line.text.truncate(cut);
+            line.text.push('…');
+            for m in &mut line.match_highlights {
+                if let Some(slice) = line.text.get(m.start..m.end) {
+                    m.text = slice.to_string();
+                }
+            }
+        }
     }
 
     /// Highlights file content with syntax highlighting.
@@ -677,5 +744,60 @@ mod tests {
         let second = service.load_preview(&path, "omega");
         let second_numbers: Vec<usize> = second.lines.iter().map(|l| l.line_number).collect();
         assert_eq!(second_numbers, (15..=20).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn generate_preview_caps_input_to_max_file_size() {
+        let config = PreviewConfig {
+            max_file_size: 64,
+            ..Default::default()
+        };
+        let service = PreviewService::new(config);
+        let content = "line one\nline two\n".repeat(10); // 180 bytes
+        let output = service.generate_preview(&content, Path::new("test.txt"), "");
+
+        assert!(output.truncated);
+        assert_eq!(output.original_size, 180);
+        // Highlighting and matching only saw the bounded slice; line
+        // texts (without newlines) therefore fit well within the cap.
+        let total: usize = output.lines.iter().map(|l| l.text.len()).sum();
+        assert!(total < 64, "highlighted content exceeded cap: {total}");
+        assert!(!output.lines.is_empty());
+    }
+
+    #[test]
+    fn generate_preview_truncates_overlong_lines() {
+        let service = PreviewService::with_default_config(); // max_line_chars = 500
+        let long = "a".repeat(5_000);
+        let content = format!("{long}\nshort needle line");
+        let output = service.generate_preview(&content, Path::new("test.rs"), "aaaaa");
+
+        let capped = output
+            .lines
+            .iter()
+            .find(|l| l.text.starts_with('a'))
+            .expect("long line present");
+        assert_eq!(capped.text.chars().count(), 501); // 500 chars + ellipsis
+        assert!(capped.text.ends_with('…'));
+
+        // Offsets and spans stay within the cut so renderers never walk
+        // past the truncated text.
+        for span in &capped.syntax_spans {
+            assert!(span.0 < 500 && span.1 <= 500, "span out of range: {span:?}");
+        }
+        for m in &capped.match_highlights {
+            assert!(m.start < m.end && m.end <= 500, "match out of range: {m:?}");
+            assert_eq!(m.text, &capped.text[m.start..m.end]);
+        }
+        assert!(!capped.match_highlights.is_empty());
+    }
+
+    #[test]
+    fn generate_preview_short_lines_untouched_by_line_cap() {
+        let service = PreviewService::with_default_config();
+        let output = service.generate_preview("hello world", Path::new("test.txt"), "world");
+
+        assert_eq!(output.lines[0].text, "hello world");
+        assert!(!output.truncated);
     }
 }
