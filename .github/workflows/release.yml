@@ -35,13 +35,13 @@ jobs:
         with:
           toolchain: stable
 
-      - name: Build CLI binary (No GTK required)
+      - name: Build CLI binary (No GUI dependencies)
         run: cargo build --release -p ${{ env.CLI_PKG }}
 
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y pkg-config libgtk-4-dev build-essential
+          sudo apt-get install -y pkg-config build-essential
 
       - name: Build GUI binary
         run: cargo build --release -p ${{ env.GUI_PKG }}
@@ -92,7 +92,6 @@ jobs:
             mingw-w64-x86_64-gcc
             mingw-w64-x86_64-rust
             mingw-w64-x86_64-pkg-config
-            mingw-w64-x86_64-gtk4
             mingw-w64-x86_64-tools
             mingw-w64-x86_64-ntldd
             p7zip
@@ -180,25 +179,7 @@ jobs:
           toolchain: stable
           target: ${{ matrix.target }}
 
-      # ARM64 GTK4 Installation
-      - name: Install GTK4 (arm64)
-        if: matrix.arch == 'arm64'
-        env:
-          HOMEBREW_NO_REQUIRE_TAP_TRUST: 1
-        run: brew install gtk4 pkg-config
-
-      # Cleaned up and working Rosetta / x86_64 GTK4 Installation
-      - name: Install GTK4 (x86_64 via Rosetta)
-        if: matrix.arch == 'x86_64'
-        run: |
-          /usr/sbin/softwareupdate --install-rosetta --agree-to-license 2>/dev/null || true
-          arch -x86_64 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" < /dev/null
-          arch -x86_64 /usr/local/bin/brew install gtk4 pkg-config
-          echo "PKG_CONFIG_PATH=/usr/local/lib/pkgconfig" >> $GITHUB_ENV
-
       - name: Build release binary
-        env:
-          PKG_CONFIG_ALLOW_CROSS: 1
         run: |
           cargo build --release --target ${{ matrix.target }} -p ${{ env.CLI_PKG }}
           cargo build --release --target ${{ matrix.target }} -p ${{ env.GUI_PKG }}
@@ -208,13 +189,9 @@ jobs:
           APP="${{ env.MAC_APP_NAME }}.app"
           CLI_PATH="target/${{ matrix.target }}/release/${{ env.CLI_BIN }}"
           GUI_PATH="target/${{ matrix.target }}/release/${{ env.GUI_BIN }}"
-          PREFIX="${{ matrix.homebrew_prefix }}"
 
           mkdir -p "${APP}/Contents/MacOS"
           mkdir -p "${APP}/Contents/Frameworks"
-          mkdir -p "${APP}/Contents/Resources/share"
-          mkdir -p "${APP}/Contents/Resources/lib"
-          mkdir -p "${APP}/Contents/Resources/etc"
 
           cp "${GUI_PATH}" "${APP}/Contents/MacOS/${{ env.GUI_BIN }}"
           chmod +x "${APP}/Contents/MacOS/${{ env.GUI_BIN }}"
@@ -258,58 +235,6 @@ jobs:
           install_name_tool -add_rpath "@executable_path/../Frameworks" \
             "${APP}/Contents/MacOS/${{ env.GUI_BIN }}" 2>/dev/null || true
 
-          find_prefix_refs() {
-            local binary="$1"
-            local prefix="$2"
-            otool -L "$binary" | grep "${prefix}/" | awk '{print $1}'
-          }
-
-          for ref in $(find_prefix_refs "${GUI_PATH}" "${PREFIX}"); do
-            name=$(basename "$ref")
-            install_name_tool -change "$ref" "@rpath/${name}" \
-              "${APP}/Contents/MacOS/${{ env.GUI_BIN }}"
-          done
-
-          for dylib in "${APP}/Contents/Frameworks/"*.dylib; do
-            [ -f "$dylib" ] || continue
-            for ref in $(find_prefix_refs "$dylib" "${PREFIX}"); do
-              name=$(basename "$ref")
-              install_name_tool -change "$ref" "@rpath/${name}" "$dylib"
-            done
-          done
-
-          echo "Bundling GTK resources..."
-          [ -d "${PREFIX}/share/gtk-4.0" ] && cp -R "${PREFIX}/share/gtk-4.0" "${APP}/Contents/Resources/share/"
-          [ -d "${PREFIX}/share/icons" ] && cp -R "${PREFIX}/share/icons" "${APP}/Contents/Resources/share/"
-          [ -d "${PREFIX}/share/glib-2.0" ] && cp -R "${PREFIX}/share/glib-2.0" "${APP}/Contents/Resources/share/"
-          [ -d "${PREFIX}/share/pango" ] && cp -R "${PREFIX}/share/pango" "${APP}/Contents/Resources/share/"
-          [ -d "${PREFIX}/lib/gdk-pixbuf-2.0" ] && cp -R "${PREFIX}/lib/gdk-pixbuf-2.0" "${APP}/Contents/Resources/lib/"
-          [ -d "${PREFIX}/lib/gtk-4.0" ] && cp -R "${PREFIX}/lib/gtk-4.0" "${APP}/Contents/Resources/lib/"
-          [ -d "${PREFIX}/lib/pango" ] && cp -R "${PREFIX}/lib/pango" "${APP}/Contents/Resources/lib/"
-          [ -d "${PREFIX}/etc/fonts" ] && cp -R "${PREFIX}/etc/fonts" "${APP}/Contents/Resources/etc/"
-
-          LOADERS_CACHE="${APP}/Contents/Resources/lib/gdk-pixbuf-2.0/2.10.0/loaders.cache"
-          if [ -f "${LOADERS_CACHE}" ]; then
-            sed -i '' "s|${PREFIX}/|/usr/|g" "${LOADERS_CACHE}"
-          fi
-
-          cat > "${APP}/Contents/MacOS/launcher" << LAUNCHER_EOF
-          #!/bin/bash
-          SCRIPT_DIR="\$(cd "\$(dirname "\$0")" && pwd)"
-          APP_DIR="\$(dirname "\$SCRIPT_DIR")"
-          RESOURCES="\${APP_DIR}/Resources"
-
-          export GTK_DATA_PREFIX="\${RESOURCES}"
-          export GTK_EXE_PREFIX="\${APP_DIR}/Contents"
-          export XDG_DATA_DIRS="\${RESOURCES}/share:\${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
-          export GDK_PIXBUF_MODULE_FILE="\${RESOURCES}/lib/gdk-pixbuf-2.0/2.10.0/loaders.cache"
-          export GTK_PATH="\${RESOURCES}/lib/gtk-4.0/4.0.0"
-          export FONTCONFIG_PATH="\${RESOURCES}/etc/fonts"
-
-          exec "\${SCRIPT_DIR}/${{ env.GUI_BIN }}" "\$@"
-          LAUNCHER_EOF
-          chmod +x "${APP}/Contents/MacOS/launcher"
-
           cat > "${APP}/Contents/Info.plist" << PLIST_EOF
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -326,7 +251,7 @@ jobs:
             <key>CFBundleShortVersionString</key>
             <string>${{ env.VERSION }}</string>
             <key>CFBundleExecutable</key>
-            <string>launcher</string>
+            <string>${{ env.GUI_BIN }}</string>
             <key>CFBundlePackageType</key>
             <string>APPL</string>
             <key>LSMinimumSystemVersion</key>

@@ -114,6 +114,18 @@ commit_interval = 500
 # Default: true
 index_on_startup = true
 
+# Tolerate single-character typos in searches (fuzzy matching).
+# When disabled, partial-word (starts-with) matching still works but
+# only against exact index terms — no distance-1 neighbors.
+# Default: true
+fuzzy_search = true
+
+# Left sidebar width in pixels as dragged by the user.
+# Written when the divider is dragged; startup and window resize never
+# touch it. 0 = derive from main_split_ratio (legacy).
+# Default: 0
+main_split_width = 0
+
 [logging]
 # Log level: "off", "error", "warn", "info", "debug", "trace"
 # Default: "error" (silent for end users)

@@ -11,6 +11,19 @@ pub struct SearchQuery {
     pub offset: usize,
     /// Maximum number of results to return per page.
     pub limit: usize,
+    /// Whether the search tolerates single-character typos.
+    ///
+    /// When `false`, the index still matches partial words (starts-with)
+    /// against exact terms but never supplements with distance-1
+    /// neighbors. Defaults to `true` (also for payloads that predate
+    /// the field).
+    #[serde(default = "default_fuzzy")]
+    pub fuzzy: bool,
+}
+
+/// Returns the default fuzzy preference for deserialization.
+fn default_fuzzy() -> bool {
+    true
 }
 
 impl Default for SearchQuery {
@@ -19,6 +32,7 @@ impl Default for SearchQuery {
             query: String::new(),
             offset: 0,
             limit: 20,
+            fuzzy: default_fuzzy(),
         }
     }
 }
@@ -26,12 +40,13 @@ impl Default for SearchQuery {
 impl SearchQuery {
     /// Creates a new search query with the given text.
     ///
-    /// Uses default pagination: offset 0, limit 20.
+    /// Uses default pagination: offset 0, limit 20, fuzzy matching on.
     pub fn new(query: impl Into<String>) -> Self {
         Self {
             query: query.into(),
             offset: 0,
             limit: 20,
+            fuzzy: default_fuzzy(),
         }
     }
 
@@ -52,7 +67,7 @@ impl SearchQuery {
 
     /// Creates a paged query from a 1-based page number.
     ///
-    /// `page` is clamped to a minimum of 1 and `per_page` to a minimum
+    /// `page` is clamped to a minimum of 1, `per_page` to a minimum
     /// of 1. Offset is computed as `(page - 1) * per_page`.
     pub fn paged(query: impl Into<String>, page: usize, per_page: usize) -> Self {
         let page = page.max(1);
@@ -62,7 +77,14 @@ impl SearchQuery {
             query: query.into(),
             offset,
             limit: per_page,
+            fuzzy: default_fuzzy(),
         }
+    }
+
+    /// Sets whether the search tolerates single-character typos.
+    pub fn with_fuzzy(mut self, fuzzy: bool) -> Self {
+        self.fuzzy = fuzzy;
+        self
     }
 }
 
@@ -149,5 +171,26 @@ mod tests {
         let json = serde_json::to_string(&q).unwrap();
         let restored: SearchQuery = serde_json::from_str(&json).unwrap();
         assert_eq!(q, restored);
+    }
+
+    #[test]
+    fn fuzzy_defaults_to_true() {
+        assert!(SearchQuery::new("hello").fuzzy);
+        assert!(SearchQuery::default().fuzzy);
+        assert!(SearchQuery::paged("hello", 1, 20).fuzzy);
+    }
+
+    #[test]
+    fn with_fuzzy_disables_typo_tolerance() {
+        let q = SearchQuery::new("hello").with_fuzzy(false);
+        assert!(!q.fuzzy);
+        assert_eq!(q.query, "hello");
+    }
+
+    #[test]
+    fn fuzzy_missing_in_payload_defaults_true() {
+        let restored: SearchQuery =
+            serde_json::from_str(r#"{"query":"x","offset":0,"limit":20}"#).unwrap();
+        assert!(restored.fuzzy, "payloads predating the field stay fuzzy");
     }
 }

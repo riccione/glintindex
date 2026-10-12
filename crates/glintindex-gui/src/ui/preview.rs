@@ -1,190 +1,163 @@
-//! Preview pane UI component.
+//! Preview pane.
 //!
-//! Displays file content in a read-only text view with search-match
-//! highlights rendered via TextBuffer tags.
-//! GTK4's TextView natively supports text selection and copying.
+//! Central panel with action buttons (Open / Open Folder / Copy Path)
+//! above a scrollable monospace preview. The preview renders the
+//! toolkit-agnostic [`crate::preview_model`] as an egui `LayoutJob`:
+//! dim gray italics for `//` headers and `…` gaps, warm-yellow
+//! background for search matches.
 
-use gtk::prelude::*;
-use gtk::{Box as GtkBox, Label, Orientation, TextBuffer, TextView};
+use std::ops::Range;
 
-/// Tag name for search-match highlight styling.
-pub const MATCH_TAG: &str = "match-highlight";
-/// Tag name for dimmed metadata/gap lines (headers, `…` separators).
-pub const GAP_TAG: &str = "gap";
-/// Placeholder text shown when no file is previewed.
+use eframe::egui::{
+    self, FontId,
+    text::{LayoutJob, TextFormat},
+};
+
+use crate::app::GlintApp;
+use crate::preview_model::{LineStyle, PreviewModel};
+use crate::theme::MATCH_BACKGROUND;
+
+/// Placeholder shown when nothing is selected.
 pub const PLACEHOLDER_TEXT: &str = "Select a file to preview";
+/// Placeholder shown while a background preview generation is running.
+pub const LOADING_TEXT: &str = "Loading preview…";
 
-/// Builds the preview pane widget with a placeholder.
-#[allow(dead_code)]
-pub fn build() -> GtkBox {
-    let container = GtkBox::new(Orientation::Vertical, 0);
+/// Draws the preview panel (action bar + scrollable preview).
+pub fn show(app: &mut GlintApp, ui: &mut egui::Ui) {
+    egui::CentralPanel::default().show(ui, |ui| {
+        let selected_path = app.selected_path.clone();
+        let file_exists = selected_path.as_ref().is_some_and(|p| p.exists());
 
-    let placeholder = Label::builder()
-        .label("Select a file to preview")
-        .halign(gtk::Align::Center)
-        .valign(gtk::Align::Center)
-        .vexpand(true)
-        .css_classes(["dim-label"])
-        .build();
+        ui.horizontal(|ui| {
+            let open = ui.add_enabled(file_exists, egui::Button::new("Open"));
+            if open.clicked() {
+                if let Some(path) = &selected_path {
+                    if let Err(e) = crate::file_actions::open_file(path) {
+                        tracing::warn!(
+                            target: "glintindex::gui",
+                            path = %path.display(),
+                            error = %e,
+                            "open file failed"
+                        );
+                    }
+                }
+            }
 
-    container.append(&placeholder);
-    container
+            let reveal = ui.add_enabled(selected_path.is_some(), egui::Button::new("Open Folder"));
+            if reveal.clicked() {
+                if let Some(path) = &selected_path {
+                    if let Err(e) = crate::file_actions::reveal_in_file_manager(path) {
+                        tracing::warn!(
+                            target: "glintindex::gui",
+                            path = %path.display(),
+                            error = %e,
+                            "reveal in file manager failed"
+                        );
+                    }
+                }
+            }
+
+            let copy = ui.add_enabled(selected_path.is_some(), egui::Button::new("Copy Path"));
+            if copy.clicked() {
+                if let Some(path) = &selected_path {
+                    ui.ctx().copy_text(path.display().to_string());
+                }
+            }
+        });
+
+        ui.separator();
+
+        let font_size = app.service.config().clamped_font_size() as f32;
+        egui::ScrollArea::vertical()
+            .id_salt("preview_scroll")
+            .auto_shrink([false, false])
+            .show(ui, |ui| match &app.preview_model {
+                Some(model) => {
+                    let job = to_layout_job(model, font_size, ui.visuals().clone());
+                    ui.add(egui::Label::new(job).selectable(true));
+                }
+                None => {
+                    ui.centered_and_justified(|ui| {
+                        if app.preview_loading {
+                            ui.weak(LOADING_TEXT);
+                        } else {
+                            ui.weak(PLACEHOLDER_TEXT);
+                        }
+                    });
+                }
+            });
+    });
 }
 
-/// Builds the preview pane with a text buffer reference.
+/// Converts a [`PreviewModel`] into a single `LayoutJob`.
 ///
-/// Returns the container widget and the text buffer for updating content.
-/// The buffer has `match-highlight` and `gap` text tags registered.
-pub fn build_with_buffer() -> (GtkBox, TextBuffer) {
-    let container = GtkBox::new(Orientation::Vertical, 0);
+/// Dim lines (headers, gaps) render gray and italic; content lines
+/// render monospace with warm-yellow backgrounds over match ranges
+/// (byte offsets clamped to char boundaries).
+pub fn to_layout_job(model: &PreviewModel, font_size: f32, visuals: egui::Visuals) -> LayoutJob {
+    let mono = FontId::monospace(font_size);
+    let normal = TextFormat {
+        font_id: mono.clone(),
+        color: visuals.text_color(),
+        ..Default::default()
+    };
+    let dim = TextFormat {
+        font_id: mono.clone(),
+        color: visuals.weak_text_color(),
+        italics: true,
+        ..Default::default()
+    };
+    let matched = TextFormat {
+        font_id: mono.clone(),
+        color: visuals.text_color(),
+        background: MATCH_BACKGROUND,
+        ..Default::default()
+    };
 
-    let text_view = TextView::builder()
-        .editable(false)
-        .monospace(true)
-        .left_margin(4)
-        .top_margin(4)
-        .bottom_margin(4)
-        .wrap_mode(gtk::WrapMode::None)
-        .vexpand(true)
-        .hexpand(true)
-        .build();
-
-    let buffer = text_view.buffer();
-    create_preview_tags(&buffer);
-    buffer.set_text(PLACEHOLDER_TEXT);
-
-    container.append(&text_view);
-    (container, buffer)
-}
-
-/// Resets the buffer to the startup placeholder text.
-///
-/// Used when the selection is lost (search input cleared, query
-/// changed, results refreshed) so the preview pane never keeps
-/// showing a previously selected document.
-pub fn reset_to_placeholder(buffer: &TextBuffer) {
-    buffer.set_text(PLACEHOLDER_TEXT);
-}
-
-/// Creates the highlight and gap text tags on a buffer's tag table.
-fn create_preview_tags(buffer: &TextBuffer) {
-    let tag_table = buffer.tag_table();
-
-    if tag_table.lookup(MATCH_TAG).is_none() {
-        // Warm yellow with alpha — readable on both light and dark themes.
-        let background = gtk::gdk::RGBA::new(1.0, 0.84, 0.2, 0.55);
-        // PANGO_WEIGHT_BOLD
-        let weight = 700i32;
-        buffer.create_tag(
-            Some(MATCH_TAG),
-            &[("weight", &weight), ("background-rgba", &background)],
-        );
-    }
-
-    if tag_table.lookup(GAP_TAG).is_none() {
-        let foreground = gtk::gdk::RGBA::new(0.5, 0.5, 0.5, 1.0);
-        buffer.create_tag(
-            Some(GAP_TAG),
-            &[
-                ("style", &gtk::pango::Style::Italic),
-                ("foreground-rgba", &foreground),
-            ],
-        );
-    }
-}
-
-/// Populates the text buffer from preview output.
-///
-/// Renders a dim `// File path: …` header, then line numbers and text,
-/// applies the `match-highlight` tag over each search match (byte offsets
-/// converted to character offsets for `TextBuffer`), inserts dim `…` gap
-/// markers between non-contiguous line blocks, and dim header lines for
-/// truncation/encoding notices.
-/// Returns the plain-text rendering of the buffer content.
-pub fn populate_preview_buffer(
-    buffer: &TextBuffer,
-    output: &glintindex_core::PreviewOutput,
-) -> String {
-    create_preview_tags(buffer);
-    buffer.set_text("");
-
-    let mut plain = String::new();
-    let mut offset: i32 = 0;
-
-    // Full file path header — the results list shows only the file
-    // name, so the path lives here as a dimmed `//` comment.
-    let path_header = format!("// File path: {}\n", output.path.display());
-    offset = insert_styled(buffer, offset, &path_header, GAP_TAG);
-    plain.push_str(&path_header);
-
-    if output.truncated {
-        let header = format!(
-            "// Preview truncated (original size: {} bytes)\n",
-            output.original_size
-        );
-        offset = insert_styled(buffer, offset, &header, GAP_TAG);
-        plain.push_str(&header);
-    }
-
-    if output.encoding != glintindex_core::Encoding::Utf8 {
-        let header = format!("// Encoding: {:?}\n", output.encoding);
-        offset = insert_styled(buffer, offset, &header, GAP_TAG);
-        plain.push_str(&header);
-    }
-
-    let mut previous_line: Option<usize> = None;
-    for line in &output.lines {
-        if let Some(prev) = previous_line {
-            if line.line_number > prev + 1 {
-                let gap = "…\n".to_string();
-                offset = insert_styled(buffer, offset, &gap, GAP_TAG);
-                plain.push_str(&gap);
+    let mut job = LayoutJob::default();
+    for line in &model.lines {
+        match line.style {
+            LineStyle::Dim => {
+                job.append(&line.number_prefix, 0.0, dim.clone());
+                job.append(&line.text, 0.0, dim.clone());
+            }
+            LineStyle::Normal => {
+                job.append(&line.number_prefix, 0.0, normal.clone());
+                append_with_matches(&mut job, &line.text, &line.match_ranges, &normal, &matched);
             }
         }
-        previous_line = Some(line.line_number);
+        job.append("\n", 0.0, normal.clone());
+    }
+    job
+}
 
-        let prefix = format!("{:>4} ", line.line_number);
-        offset = insert_styled(buffer, offset, &prefix, "");
-        plain.push_str(&prefix);
-
-        let text_start = offset;
-        offset = insert_styled(buffer, offset, &line.text, "");
-        offset = insert_styled(buffer, offset, "\n", "");
-        plain.push_str(&line.text);
-        plain.push('\n');
-
-        for m in &line.match_highlights {
-            let char_start = byte_to_char_offset(&line.text, m.start);
-            let char_end = byte_to_char_offset(&line.text, m.end);
-            let start = buffer.iter_at_offset(text_start + char_start as i32);
-            let end = buffer.iter_at_offset(text_start + char_end as i32);
-            buffer.apply_tag_by_name(MATCH_TAG, &start, &end);
+/// Appends line text with match ranges styled as highlights.
+fn append_with_matches(
+    job: &mut LayoutJob,
+    text: &str,
+    ranges: &[Range<usize>],
+    normal: &TextFormat,
+    matched: &TextFormat,
+) {
+    let mut last = 0usize;
+    for range in ranges {
+        let start = clamp_char_boundary(text, range.start).max(last);
+        let end = clamp_char_boundary(text, range.end).max(start);
+        if start < last {
+            continue;
         }
+        job.append(&text[last..start], 0.0, normal.clone());
+        job.append(&text[start..end], 0.0, matched.clone());
+        last = end;
     }
-
-    plain
+    job.append(&text[last..], 0.0, normal.clone());
 }
 
-/// Inserts text into the buffer at the given character offset, optionally
-/// applying a named tag to the inserted range. Returns the new offset.
-fn insert_styled(buffer: &TextBuffer, offset: i32, text: &str, tag: &str) -> i32 {
-    let mut iter = buffer.iter_at_offset(offset);
-    buffer.insert(&mut iter, text);
-    let end_offset = offset + text.chars().count() as i32;
-    if !tag.is_empty() {
-        let start = buffer.iter_at_offset(offset);
-        let end = buffer.iter_at_offset(end_offset);
-        buffer.apply_tag_by_name(tag, &start, &end);
-    }
-    end_offset
-}
-
-/// Converts a byte offset within `text` to a character offset,
-/// clamping to the nearest char boundary if the offset is invalid.
-fn byte_to_char_offset(text: &str, byte: usize) -> usize {
+/// Clamps a byte offset to the nearest valid char boundary at or below it.
+fn clamp_char_boundary(text: &str, byte: usize) -> usize {
     let mut b = byte.min(text.len());
     while b > 0 && !text.is_char_boundary(b) {
         b -= 1;
     }
-    text[..b].chars().count()
+    b
 }

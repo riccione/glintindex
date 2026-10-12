@@ -570,7 +570,7 @@ impl ApplicationService {
     /// Returns a clone of the shared index service handle.
     ///
     /// This is used by the GUI to run searches on background threads
-    /// without blocking the GTK main loop. The returned
+    /// without blocking the UI event loop. The returned
     /// `Arc<Mutex<IndexService>>` can be cloned and moved into a
     /// `std::thread::spawn` closure.
     pub fn index_service_handle(&self) -> Arc<Mutex<IndexService>> {
@@ -761,6 +761,23 @@ impl ApplicationService {
         Ok(())
     }
 
+    /// Updates the left sidebar width (pixels) and persists it.
+    ///
+    /// Clamped to [120, 900] to match the GUI panel's size range.
+    /// The legacy `main_split_ratio` is kept in sync (percent of the
+    /// GTK 1000pt reference) for older builds.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the configuration cannot be saved.
+    pub fn set_main_split_width(&mut self, width: u32) -> Result<()> {
+        let clamped = width.clamp(120, 900);
+        self.config.main_split_width = clamped;
+        self.config.main_split_ratio = (clamped / 10).clamp(15, 85);
+        self.save_config()?;
+        Ok(())
+    }
+
     /// Updates the startup auto-index preference and persists the change.
     ///
     /// When enabled, the GUI starts a background indexing job at startup
@@ -771,6 +788,20 @@ impl ApplicationService {
     /// Returns an error if the configuration cannot be saved.
     pub fn set_index_on_startup(&mut self, enabled: bool) -> Result<()> {
         self.config.index_on_startup = enabled;
+        self.save_config()?;
+        Ok(())
+    }
+
+    /// Updates the fuzzy-search (typo tolerance) preference.
+    ///
+    /// Takes effect on the next search; frontends read the value when
+    /// building a [`crate::SearchQuery`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the configuration cannot be saved.
+    pub fn set_fuzzy_search(&mut self, enabled: bool) -> Result<()> {
+        self.config.fuzzy_search = enabled;
         self.save_config()?;
         Ok(())
     }
@@ -1356,5 +1387,48 @@ mod tests {
 
         let reloaded = crate::config::loader::load(&config_path).unwrap();
         assert!(!reloaded.index_on_startup);
+    }
+
+    #[test]
+    fn set_fuzzy_search_persists() {
+        let tmp = TempDir::new().unwrap();
+        let config_path = tmp.path().join("config.toml");
+        let config = test_config(&tmp);
+        crate::config::loader::save(&config_path, &config).unwrap();
+
+        let mut service = ApplicationService::with_config_path(&config_path).unwrap();
+        assert!(service.config().fuzzy_search);
+
+        service.set_fuzzy_search(false).unwrap();
+        assert!(!service.config().fuzzy_search);
+
+        let reloaded = crate::config::loader::load(&config_path).unwrap();
+        assert!(!reloaded.fuzzy_search);
+    }
+
+    #[test]
+    fn set_main_split_width_persists_and_syncs_ratio() {
+        let tmp = TempDir::new().unwrap();
+        let config_path = tmp.path().join("config.toml");
+        let config = test_config(&tmp);
+        crate::config::loader::save(&config_path, &config).unwrap();
+
+        let mut service = ApplicationService::with_config_path(&config_path).unwrap();
+        assert_eq!(service.config().main_split_width, 0);
+
+        service.set_main_split_width(430).unwrap();
+        assert_eq!(service.config().main_split_width(), 430);
+        assert_eq!(service.config().main_split_ratio, 43);
+
+        let reloaded = crate::config::loader::load(&config_path).unwrap();
+        assert_eq!(reloaded.main_split_width, 430);
+
+        // Values outside the panel's size range clamp to its bounds.
+        service.set_main_split_width(50).unwrap();
+        assert_eq!(service.config().main_split_width, 120);
+        assert_eq!(service.config().main_split_ratio, 15);
+        service.set_main_split_width(5000).unwrap();
+        assert_eq!(service.config().main_split_width, 900);
+        assert_eq!(service.config().main_split_ratio, 85);
     }
 }

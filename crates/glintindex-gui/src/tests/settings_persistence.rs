@@ -1,401 +1,315 @@
 //! Settings persistence tests.
 //!
-//! Tests GTK widget interactions with application settings,
-//! verifying that user interactions update the backing state.
+//! Covers config writes/reads for theme, font size, index-on-startup,
+//! folders, and ignored folders — mostly service-level, plus the
+//! settings-view wiring that persists changes and the font-scaled
+//! sidebar width.
 
-use gtk::prelude::*;
+use eframe::egui::{self, Color32, TextStyle};
+use glintindex_core::Theme;
 
-use super::setup_test_state;
+use super::{run_ui, setup_test_app, setup_test_service};
 
-#[gtk::test]
-fn test_theme_radio_buttons_mutual_exclusion() {
-    let _ = gtk::init();
-    let radio_system = gtk::CheckButton::with_label("System");
-    let radio_light = gtk::CheckButton::with_label("Light");
-    let radio_dark = gtk::CheckButton::with_label("Dark");
-
-    radio_light.set_group(Some(&radio_system));
-    radio_dark.set_group(Some(&radio_system));
-
-    radio_system.set_active(true);
-    assert!(radio_system.is_active());
-    assert!(!radio_light.is_active());
-    assert!(!radio_dark.is_active());
-
-    radio_light.set_active(true);
-    assert!(!radio_system.is_active());
-    assert!(radio_light.is_active());
-    assert!(!radio_dark.is_active());
+/// Runs `frames` headless frames on a fresh context and returns the
+/// persisted settings-nav panel width together with the context (for
+/// follow-up font/text measurements against the same fonts).
+fn settings_nav_width(app: &mut crate::app::GlintApp, frames: usize) -> (f32, egui::Context) {
+    let ctx = egui::Context::default();
+    for _ in 0..frames {
+        let out = ctx.run_ui(egui::RawInput::default(), |ui| app.ui(ui));
+        out.drop_without_applying_deltas();
+    }
+    let width = egui::PanelState::load(&ctx, egui::Id::new("settings_nav"))
+        .expect("settings nav panel state persisted")
+        .size()
+        .x;
+    (width, ctx)
 }
 
-#[gtk::test]
-fn test_selecting_theme_updates_config() {
-    let _ = gtk::init();
-    let (state, _tmp) = setup_test_state();
-
-    let state = std::rc::Rc::new(std::cell::RefCell::new(state));
-    let state_clone = state.clone();
-
-    let radio_system = gtk::CheckButton::with_label("System");
-    radio_system.set_active(true);
-
-    radio_system.connect_toggled(move |btn| {
-        if btn.is_active() {
-            let mut st = state_clone.borrow_mut();
-            let _ = st.service.set_theme(glintindex_core::Theme::System);
-        }
-    });
-
-    radio_system.set_active(true);
-    super::process_events();
-
-    let st = state.borrow();
-    assert_eq!(st.service.config().theme, glintindex_core::Theme::System);
-}
-
-#[gtk::test]
-fn test_font_size_spin_updates_config() {
-    let _ = gtk::init();
-    let (state, _tmp) = setup_test_state();
-
-    let state = std::rc::Rc::new(std::cell::RefCell::new(state));
-    let state_clone = state.clone();
-
-    let spin = gtk::SpinButton::builder()
-        .adjustment(&gtk::Adjustment::new(12.0, 8.0, 32.0, 1.0, 5.0, 0.0))
-        .build();
-
-    spin.connect_value_changed(move |btn| {
-        let new_size = btn.value() as u32;
-        let mut st = state_clone.borrow_mut();
-        let _ = st.service.set_font_size(new_size);
-    });
-
-    spin.set_value(20.0);
-    super::process_events();
-
-    let st = state.borrow();
-    assert_eq!(st.service.config().font_size, 20);
-}
-
-#[gtk::test]
-fn test_font_size_clamped_to_valid_range() {
-    let _ = gtk::init();
-    let (state, _tmp) = setup_test_state();
-
-    let state = std::rc::Rc::new(std::cell::RefCell::new(state));
-    let state_clone = state.clone();
-
-    let spin = gtk::SpinButton::builder()
-        .adjustment(&gtk::Adjustment::new(12.0, 8.0, 32.0, 1.0, 5.0, 0.0))
-        .build();
-
-    spin.connect_value_changed(move |btn| {
-        let new_size = btn.value() as u32;
-        let mut st = state_clone.borrow_mut();
-        let _ = st.service.set_font_size(new_size);
-    });
-
-    spin.set_value(50.0);
-    super::process_events();
-
-    let st = state.borrow();
-    let clamped = st.service.config().clamped_font_size();
-    assert!((8..=32).contains(&clamped), "Font size should be clamped");
-}
-
-#[gtk::test]
-fn test_config_roundtrip_preserves_settings() {
-    let _ = gtk::init();
-    let (mut state, tmp) = setup_test_state();
-    let config_path = tmp.path().join("config.toml");
-
-    let _ = state.service.set_theme(glintindex_core::Theme::Dark);
-    let _ = state.service.set_font_size(20);
-    glintindex_core::config::loader::save(&config_path, state.service.config()).unwrap();
-
-    let restored = glintindex_core::config::loader::load(&config_path).unwrap();
-    assert_eq!(restored.theme, glintindex_core::Theme::Dark);
-    assert_eq!(restored.font_size, 20);
-}
-
-#[gtk::test]
-fn test_default_config_when_keys_missing() {
-    let _ = gtk::init();
-    let tmp = tempfile::TempDir::new().unwrap();
-    let config_path = tmp.path().join("config.toml");
-    std::fs::write(
-        &config_path,
-        r#"indexed_folders = []
-ignored_folders = [".git", ".svn"]
-index_directory = "/tmp/glintindex-test-index"
-theme = "system"
-max_preview_size = 200
-commit_interval = 500
-"#,
-    )
-    .unwrap();
-
-    let config = glintindex_core::config::loader::load(&config_path).unwrap();
-    assert_eq!(config.theme, glintindex_core::Theme::System);
-    assert_eq!(config.max_preview_size, 200);
-    assert_eq!(config.commit_interval, 500);
-    assert_eq!(config.ignored_folders.len(), 2);
-}
-
-#[gtk::test]
-fn test_toggle_button_enables_disables_folder() {
-    let _ = gtk::init();
-    let (service, _tmp) = {
-        let tmp = tempfile::TempDir::new().unwrap();
-        let folder_path = tmp.path().join("test_folder");
-        std::fs::create_dir(&folder_path).unwrap();
-
-        let config_path = tmp.path().join("config.toml");
-        let index_dir = tmp.path().join("test_index");
-        std::fs::write(
-            &config_path,
-            format!(
-                r#"indexed_folders = []
-ignored_folders = []
-index_directory = "{}"
-theme = "system"
-max_preview_size = 200
-commit_interval = 500
-"#,
-                index_dir.display()
-            ),
-        )
-        .unwrap();
-        let mut svc = glintindex_core::ApplicationService::with_config_path(&config_path).unwrap();
-        let _ = svc.add_folder(&folder_path);
-        (svc, tmp)
+/// No-wrap width of the longest settings page label at the context's
+/// active Body font.
+fn longest_label_width(ctx: &egui::Context) -> f32 {
+    let theme = match ctx.system_theme() {
+        Some(egui::Theme::Dark) => egui::Theme::Dark,
+        _ => egui::Theme::Light,
     };
-
-    let state = std::rc::Rc::new(std::cell::RefCell::new(super::setup_test_state().0));
-
-    // Override service
-    {
-        let mut st = state.borrow_mut();
-        st.service = service;
-    }
-
-    // Disable
-    {
-        let mut st = state.borrow_mut();
-        let folders: Vec<_> = st.service.indexed_folders().into_iter().cloned().collect();
-        let _ = st.service.disable_folder(&folders[0].path);
-    }
-    {
-        let st = state.borrow();
-        assert!(st.service.enabled_folders().is_empty());
-    }
-
-    // Re-enable
-    {
-        let mut st = state.borrow_mut();
-        let folders: Vec<_> = st.service.indexed_folders().into_iter().cloned().collect();
-        let _ = st.service.enable_folder(&folders[0].path);
-    }
-    {
-        let st = state.borrow();
-        assert_eq!(st.service.enabled_folders().len(), 1);
-    }
+    let font_id = ctx
+        .style_of(theme)
+        .text_styles
+        .get(&TextStyle::Body)
+        .cloned()
+        .unwrap_or_else(|| egui::FontId::proportional(14.0));
+    crate::app::SettingsPage::ALL
+        .iter()
+        .map(|page| {
+            ctx.fonts_mut(|fonts| {
+                fonts.layout_no_wrap(page.label().to_owned(), font_id.clone(), Color32::WHITE)
+            })
+            .size()
+            .x
+        })
+        .fold(0.0, f32::max)
 }
 
-#[gtk::test]
-fn test_remove_button_deletes_folder() {
-    let _ = gtk::init();
-    let (service, _tmp) = {
-        let tmp = tempfile::TempDir::new().unwrap();
-        let folder_path = tmp.path().join("test_folder");
-        std::fs::create_dir(&folder_path).unwrap();
-
-        let config_path = tmp.path().join("config.toml");
-        let index_dir = tmp.path().join("test_index");
-        std::fs::write(
-            &config_path,
-            format!(
-                r#"indexed_folders = []
-ignored_folders = []
-index_directory = "{}"
-theme = "system"
-max_preview_size = 200
-commit_interval = 500
-"#,
-                index_dir.display()
-            ),
-        )
-        .unwrap();
-        let mut svc = glintindex_core::ApplicationService::with_config_path(&config_path).unwrap();
-        let _ = svc.add_folder(&folder_path);
-        (svc, tmp)
-    };
-
-    let state = std::rc::Rc::new(std::cell::RefCell::new(super::setup_test_state().0));
-    {
-        let mut st = state.borrow_mut();
-        st.service = service;
-    }
-
-    assert_eq!(state.borrow().service.indexed_folders().len(), 1);
-
-    {
-        let mut st = state.borrow_mut();
-        let folders: Vec<_> = st.service.indexed_folders().into_iter().cloned().collect();
-        let _ = st.service.remove_folder(&folders[0].path);
-    }
-    {
-        let st = state.borrow();
-        assert!(st.service.indexed_folders().is_empty());
-    }
+#[test]
+fn test_theme_persists() {
+    let (mut service, _tmp) = setup_test_service();
+    service.set_theme(Theme::Dark).unwrap();
+    assert_eq!(service.config().theme, Theme::Dark);
+    service.set_theme(Theme::Light).unwrap();
+    assert_eq!(service.config().theme, Theme::Light);
 }
 
-#[gtk::test]
-fn test_ignored_folders_add_and_remove() {
-    let _ = gtk::init();
-    let (state, _tmp) = setup_test_state();
-
-    let state = std::rc::Rc::new(std::cell::RefCell::new(state));
-
-    {
-        let mut st = state.borrow_mut();
-        let _ = st.service.add_ignored_folder("custom_dir".to_string());
-    }
-    {
-        let st = state.borrow();
-        assert!(
-            st.service
-                .ignored_folders()
-                .contains(&"custom_dir".to_string())
-        );
-    }
-
-    {
-        let mut st = state.borrow_mut();
-        let _ = st.service.remove_ignored_folder("custom_dir");
-    }
-    {
-        let st = state.borrow();
-        assert!(
-            !st.service
-                .ignored_folders()
-                .contains(&"custom_dir".to_string())
-        );
-    }
+#[test]
+fn test_font_size_persists_and_roundtrips() {
+    let (mut service, _tmp) = setup_test_service();
+    service.set_font_size(18).unwrap();
+    assert_eq!(service.config().clamped_font_size(), 18);
 }
 
-#[gtk::test]
-fn test_index_on_startup_toggle_updates_config() {
-    let _ = gtk::init();
-    let (state, _tmp) = setup_test_state();
-
-    let state = std::rc::Rc::new(std::cell::RefCell::new(state));
-    let state_clone = state.clone();
-
-    let check = gtk::CheckButton::with_label("Index automatically at startup");
-    check.set_active(state.borrow().service.config().index_on_startup);
-    assert!(check.is_active(), "default should be on");
-
-    check.connect_toggled(move |btn| {
-        let enabled = btn.is_active();
-        let mut st = state_clone.borrow_mut();
-        let _ = st.service.set_index_on_startup(enabled);
-    });
-
-    check.set_active(false);
-    super::process_events();
-
-    {
-        let st = state.borrow();
-        assert!(!st.service.config().index_on_startup);
-    }
-
-    check.set_active(true);
-    super::process_events();
-
-    {
-        let st = state.borrow();
-        assert!(st.service.config().index_on_startup);
-    }
+#[test]
+fn test_index_on_startup_roundtrip() {
+    let (mut service, _tmp) = setup_test_service();
+    service.set_index_on_startup(true).unwrap();
+    assert!(service.config().index_on_startup);
+    service.set_index_on_startup(false).unwrap();
+    assert!(!service.config().index_on_startup);
 }
 
-#[gtk::test]
-fn test_index_on_startup_roundtrip_preserves_setting() {
-    let _ = gtk::init();
-    let (mut state, tmp) = setup_test_state();
+#[test]
+fn test_folder_add_enable_disable_remove() {
+    let (mut service, tmp) = setup_test_service();
+    let folder = tmp.path().join("docs");
+    std::fs::create_dir(&folder).unwrap();
+
+    service.add_folder(&folder).unwrap();
+    assert_eq!(service.indexed_folders().len(), 1);
+    assert!(service.has_enabled_folders());
+
+    service.disable_folder(&folder).unwrap();
+    assert!(!service.enabled_folders().iter().any(|f| f.path == folder));
+
+    service.enable_folder(&folder).unwrap();
+    assert!(service.enabled_folders().iter().any(|f| f.path == folder));
+
+    service.remove_folder(&folder).unwrap();
+    assert!(service.indexed_folders().is_empty());
+    assert!(!service.has_enabled_folders());
+}
+
+#[test]
+fn test_ignored_folder_add_remove() {
+    let (mut service, _tmp) = setup_test_service();
+    service.add_ignored_folder("node_modules".into()).unwrap();
+    assert!(
+        service
+            .ignored_folders()
+            .contains(&"node_modules".to_string())
+    );
+    service.remove_ignored_folder("node_modules").unwrap();
+    assert!(
+        !service
+            .ignored_folders()
+            .contains(&"node_modules".to_string())
+    );
+}
+
+#[test]
+fn test_config_survives_reload() {
+    let (mut service, tmp) = setup_test_service();
+    service.set_theme(Theme::Dark).unwrap();
+    service.set_font_size(20).unwrap();
     let config_path = tmp.path().join("config.toml");
 
-    let _ = state.service.set_index_on_startup(false);
-    glintindex_core::config::loader::save(&config_path, state.service.config()).unwrap();
-
-    let restored = glintindex_core::config::loader::load(&config_path).unwrap();
-    assert!(!restored.index_on_startup);
+    let reloaded = glintindex_core::config::loader::load(&config_path).unwrap();
+    assert_eq!(reloaded.theme, Theme::Dark);
+    assert_eq!(reloaded.clamped_font_size(), 20);
 }
 
-#[gtk::test]
-fn test_search_entry_text_updates_query() {
-    let _ = gtk::init();
-    let (state, _tmp) = setup_test_state();
+#[test]
+fn test_settings_appearance_click_persists_theme() {
+    let (mut app, _tmp) = setup_test_app();
+    app.view = crate::app::View::Settings;
+    app.settings_page = crate::app::SettingsPage::Appearance;
 
-    let state = std::rc::Rc::new(std::cell::RefCell::new(state));
-    let state_clone = state.clone();
-    let search_entry = gtk::SearchEntry::new();
+    // Simulate what the Appearance page does on Dark click.
+    app.service.set_theme(Theme::Dark).unwrap();
+    app.applied_theme = None;
 
-    search_entry.connect_changed(move |entry| {
-        let query = entry.text().to_string();
-        let mut st = state_clone.borrow_mut();
-        st.query = query;
-    });
-
-    search_entry.set_text("test query");
-    super::process_events();
-
-    let st = state.borrow();
-    assert_eq!(st.query, "test query");
+    run_ui(&mut app, 2);
+    assert_eq!(app.service.config().theme, Theme::Dark);
 }
 
-#[gtk::test]
-fn test_empty_search_clears_results() {
-    let _ = gtk::init();
-    let (state, _tmp) = setup_test_state();
-
-    let state = std::rc::Rc::new(std::cell::RefCell::new(state));
-
-    {
-        let mut st = state.borrow_mut();
-        let doc = glintindex_core::Document::new(
-            std::path::PathBuf::from("/test/file.txt"),
-            100,
-            std::time::SystemTime::now(),
-            "content".into(),
-        );
-        st.results
-            .push(glintindex_core::SearchResult::new(doc, 1.0, "test".into()));
+#[test]
+fn test_settings_view_navigates_pages() {
+    let (mut app, _tmp) = setup_test_app();
+    app.view = crate::app::View::Settings;
+    for page in crate::app::SettingsPage::ALL {
+        app.settings_page = page;
+        run_ui(&mut app, 1);
+        assert_eq!(app.settings_page, page);
     }
+}
 
-    let state_clone = state.clone();
-    let search_entry = gtk::SearchEntry::new();
+#[test]
+fn test_leave_settings_returns_to_main_or_empty() {
+    let (mut app, _tmp) = setup_test_app();
+    app.view = crate::app::View::Settings;
 
-    search_entry.connect_changed(move |entry| {
-        let query = entry.text().to_string();
-        let is_empty = query.trim().is_empty();
-        let mut st = state_clone.borrow_mut();
-        st.query = query;
-        if is_empty {
-            st.results.clear();
-            st.selected_index = None;
-            st.status = "Ready".to_string();
-        }
-    });
+    // No folders → empty view.
+    app.leave_settings();
+    assert_eq!(app.view, crate::app::View::Empty);
 
-    // Set non-empty first to ensure changed signal fires, then clear
-    search_entry.set_text("x");
-    super::process_events();
-    search_entry.set_text("");
-    super::process_events();
+    // With folders → main view.
+    let folder = std::env::temp_dir().join("glintindex-test-folders");
+    std::fs::create_dir_all(&folder).unwrap();
+    app.service.add_folder(&folder).unwrap();
+    app.view = crate::app::View::Settings;
+    app.leave_settings();
+    assert_eq!(app.view, crate::app::View::Main);
+    let _ = app.service.remove_folder(&folder);
+}
 
-    let st = state.borrow();
-    assert!(st.results.is_empty());
-    assert_eq!(st.status, "Ready");
+#[test]
+fn test_settings_nav_fits_longest_label_at_max_font() {
+    let (mut app, _tmp) = setup_test_app();
+    app.service.set_font_size(32).unwrap();
+    app.applied_theme = None;
+    app.view = crate::app::View::Settings;
+
+    // Several frames so the theme applied in frame 1 is visible to the
+    // root Ui style from frame 2 onward.
+    let (width, ctx) = settings_nav_width(&mut app, 3);
+
+    let longest = longest_label_width(&ctx);
+    assert!(
+        longest > 100.0,
+        "measurement sanity: longest label at font 32 is substantial (got {longest})"
+    );
+    let row_padding = ctx.style_of(egui::Theme::Light).spacing.button_padding.x * 2.0;
+    assert!(
+        width >= longest + row_padding,
+        "nav width {width} must fit longest label {longest} + row padding {row_padding} at font 32"
+    );
+    assert!(width <= 420.0, "nav width stays within the clamp");
+}
+
+#[test]
+fn test_settings_nav_width_scales_with_font_size() {
+    let (mut app, _tmp) = setup_test_app();
+    app.view = crate::app::View::Settings;
+
+    app.service.set_font_size(8).unwrap();
+    app.applied_theme = None;
+    let (small, _) = settings_nav_width(&mut app, 3);
+
+    app.service.set_font_size(32).unwrap();
+    app.applied_theme = None;
+    let (large, _) = settings_nav_width(&mut app, 3);
+
+    assert!(
+        (220.0..=420.0).contains(&small),
+        "font 8 width in bounds (got {small})"
+    );
+    assert!(
+        (220.0..=420.0).contains(&large),
+        "font 32 width in bounds (got {large})"
+    );
+    assert!(
+        large > small,
+        "nav width grows with font size ({small} -> {large})"
+    );
+}
+
+#[test]
+fn test_font_size_staged_until_commit() {
+    let (mut app, _tmp) = setup_test_app();
+    // Render one frame so sync_theme marks the current font as applied.
+    run_ui(&mut app, 1);
+    let original = app.service.config().clamped_font_size();
+    assert!(app.applied_theme.is_some());
+
+    app.stage_font_size(20);
+    assert_eq!(app.font_size_draft, Some(20), "draft is staged");
+    assert_eq!(
+        app.service.config().clamped_font_size(),
+        original,
+        "staging must not write config"
+    );
+    assert!(
+        app.applied_theme.is_some(),
+        "staging must not invalidate the applied theme"
+    );
+
+    app.commit_font_size();
+    assert_eq!(app.service.config().clamped_font_size(), 20);
+    assert_eq!(app.font_size_draft, None, "commit consumes the draft");
+    assert!(
+        app.applied_theme.is_none(),
+        "commit invalidates applied theme so fonts re-apply"
+    );
+}
+
+#[test]
+fn test_font_size_commit_unchanged_value_is_noop() {
+    let (mut app, _tmp) = setup_test_app();
+    run_ui(&mut app, 1);
+    let current = app.service.config().clamped_font_size();
+    assert!(app.applied_theme.is_some());
+
+    // Clicking the value box and clicking away without editing.
+    app.stage_font_size(current as i32);
+    app.commit_font_size();
+
+    assert_eq!(app.font_size_draft, None);
+    assert!(
+        app.applied_theme.is_some(),
+        "committing an unchanged value must not force a font re-apply"
+    );
+}
+
+#[test]
+fn test_font_size_discard_reverts_staged_value() {
+    let (mut app, _tmp) = setup_test_app();
+    let original = app.service.config().clamped_font_size();
+
+    app.stage_font_size(20);
+    app.discard_font_size(); // Escape path: drop before leave_settings.
+    assert_eq!(app.font_size_draft, None);
+
+    app.leave_settings();
+    assert_eq!(
+        app.service.config().clamped_font_size(),
+        original,
+        "discarded draft must never reach config"
+    );
+}
+
+#[test]
+fn test_leave_settings_commits_pending_font_size() {
+    let (mut app, _tmp) = setup_test_app();
+    app.view = crate::app::View::Settings;
+
+    // Back button / nav click: leaving counts as "clicked outside".
+    app.stage_font_size(20);
+    app.leave_settings();
+
+    assert_eq!(app.service.config().clamped_font_size(), 20);
+    assert_eq!(app.font_size_draft, None);
+}
+
+#[test]
+fn test_font_size_draft_self_heals_on_appearance_render() {
+    let (mut app, _tmp) = setup_test_app();
+    app.view = crate::app::View::Settings;
+    app.settings_page = crate::app::SettingsPage::Appearance;
+
+    // A draft left over from an interaction that ended without a
+    // release/blur event applies on the next appearance render.
+    app.stage_font_size(20);
+    run_ui(&mut app, 1);
+
+    assert_eq!(app.service.config().clamped_font_size(), 20);
+    assert_eq!(app.font_size_draft, None);
+    assert!(app.applied_theme.is_none());
 }

@@ -275,10 +275,16 @@ impl IndexService {
 
         // Build prefix queries for tokens >= 3 characters that are
         // absent from the index (typo tolerance only where needed).
-        let prefix_query = self.build_prefix_query(&searcher, &query.query);
+        // With fuzzy off, prefixes degrade to exact starts-with so
+        // partial-word matching survives without distance-1 neighbors.
+        let prefix_query = self.build_prefix_query(&searcher, &query.query, query.fuzzy);
 
-        // Build fuzzy queries for the same absent tokens.
-        let fuzzy_query = self.build_fuzzy_query(&searcher, &query.query);
+        // Build whole-word fuzzy queries for the same absent tokens.
+        let fuzzy_query = if query.fuzzy {
+            self.build_fuzzy_query(&searcher, &query.query)
+        } else {
+            None
+        };
 
         // Combine standard, prefix, and fuzzy queries
         let combined_query: Box<dyn tantivy::query::Query> = {
@@ -364,7 +370,8 @@ impl IndexService {
     ///
     /// Typo tolerance is length-scaled ([`FUZZY_MIN_TOKEN_LEN`]): tokens
     /// shorter than the threshold use a pure starts-with prefix (distance
-    /// 0); longer tokens keep distance 1.
+    /// 0); longer tokens keep distance 1 when `allow_fuzzy` is set —
+    /// otherwise every token uses distance 0 (exact starts-with only).
     ///
     /// Tokens shorter than 3 characters only get exact-match queries
     /// to avoid overly broad results.
@@ -372,6 +379,7 @@ impl IndexService {
         &self,
         searcher: &Searcher,
         query: &str,
+        allow_fuzzy: bool,
     ) -> Option<Box<dyn tantivy::query::Query>> {
         let mut sub_queries: Vec<(Occur, Box<dyn tantivy::query::Query>)> = Vec::new();
 
@@ -381,7 +389,7 @@ impl IndexService {
                 continue;
             }
 
-            let distance: u8 = if normalized.len() >= FUZZY_MIN_TOKEN_LEN {
+            let distance: u8 = if allow_fuzzy && normalized.len() >= FUZZY_MIN_TOKEN_LEN {
                 1
             } else {
                 0
@@ -646,6 +654,7 @@ mod tests {
             query: "hello".to_string(),
             offset: 0,
             limit: 0,
+            fuzzy: true,
         };
         let response = service.search(&query).unwrap();
         assert!(response.is_empty(), "limit 0 requests an empty page");
@@ -966,6 +975,60 @@ mod tests {
         // "ab" is < 3 chars — should not trigger fuzzy, just exact
         let response = service.search(&SearchQuery::new("ab")).unwrap();
         assert!(response.is_empty());
+    }
+
+    #[test]
+    fn fuzzy_off_rejects_typo() {
+        let (service, _tmp) = temp_index_service();
+        let doc = sample_document("main.rs", "programming is fun");
+        service.add_document(&doc).unwrap();
+        service.commit().unwrap();
+
+        // With fuzzy off, "progamming" must not distance-1-match
+        // "programming" — nor dist-0 prefix-match it.
+        let query = SearchQuery::new("progamming").with_fuzzy(false);
+        assert!(service.search(&query).unwrap().is_empty());
+    }
+
+    #[test]
+    fn fuzzy_off_keeps_prefix_matching() {
+        let (service, _tmp) = temp_index_service();
+        let doc = sample_document("main.rs", "programming is fun");
+        service.add_document(&doc).unwrap();
+        service.commit().unwrap();
+
+        // "progra" is absent and >= 5 chars — fuzzy off degrades the
+        // prefix to distance 0, which still finds "programming".
+        let query = SearchQuery::new("progra").with_fuzzy(false);
+        assert_eq!(service.search(&query).unwrap().results.len(), 1);
+
+        // Short partial words keep working too.
+        let query = SearchQuery::new("prog").with_fuzzy(false);
+        assert_eq!(service.search(&query).unwrap().results.len(), 1);
+    }
+
+    #[test]
+    fn fuzzy_off_finds_exact_match() {
+        let (service, _tmp) = temp_index_service();
+        let doc = sample_document("main.rs", "programming is fun");
+        service.add_document(&doc).unwrap();
+        service.commit().unwrap();
+
+        let query = SearchQuery::new("programming").with_fuzzy(false);
+        assert_eq!(service.search(&query).unwrap().results.len(), 1);
+    }
+
+    #[test]
+    fn fuzzy_off_rejects_fuzzy_prefix_typo() {
+        let (service, _tmp) = temp_index_service();
+        let doc = sample_document("config.toml", "settings configuration");
+        service.add_document(&doc).unwrap();
+        service.commit().unwrap();
+
+        // "setings" (missing 't') prefix-matches "settings" only via
+        // distance 1 — with fuzzy off it must come back empty.
+        let query = SearchQuery::new("setings").with_fuzzy(false);
+        assert!(service.search(&query).unwrap().is_empty());
     }
 
     #[test]
