@@ -71,3 +71,6 @@ allow-branch = ["release/v*"]
 
 # Explicitly forces all workspace members to bump version together
 shared-version = true
+
+# Define your custom release commit message template here:
+pre-release-commit-message = "chore(release): prepare release v{{version}}"
