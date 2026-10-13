@@ -10,7 +10,7 @@ exclude = [
 ]
 
 [workspace.package]
-version = "0.4.1"
+version = "0.5.0"
 edition = "2024"
 license = "Apache-2.0"
 repository = "https://github.com/riccione/glintindex"
@@ -50,11 +50,27 @@ opt-level = 3
 strip = true
 
 [workspace.metadata.release]
-# Custom prefix for your Git tags (default is empty or the version number)
-tag-prefix = ""
-# Automatically push to your remote repository after committing and tagging
+# We tag manually from `main` after the release PR is merged,
+# so cargo-release must never create the tag itself.
+tag = false
+
+# Format to use if/when a tag is created (kept here for reference/consistency,
+# even though `tag = false` means cargo-release itself won't create it).
+tag-name = "v{{version}}"
+
+# We push manually (release branch, then tag from main after merge),
+# so cargo-release must never push.
 push = false
-# Skip publishing to crates.io (useful for private binaries/libraries)
+
+# Private app, not published to crates.io.
 publish = false
+
+# Only allow running `cargo release` from a release prep branch
+# (e.g. release/v1.2.3), never directly on the protected `main` branch.
+allow-branch = ["release/v*"]
+
 # Explicitly forces all workspace members to bump version together
 shared-version = true
+
+# Define your custom release commit message template here:
+pre-release-commit-message = "chore(release): prepare release v{{version}}"

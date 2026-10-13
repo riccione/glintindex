@@ -1,3 +1,42 @@
+## [0.5.0] - 2026-10-13
+
+### Miscellaneous Tasks
+
+- *(release)* Restrict cargo-release to release branches, disable tagging
+- Release
+## [main] - 2026-10-13
+
+### Bug Fixes
+
+- *(gui)* Scale settings nav width with font size
+- *(gui)* Apply font size only on slider release or input commit
+- *(gui)* Align clear button inside search input
+- *(gui)* Keep default cursor over search result rows
+- *(preview)* Bound preview input and line length
+- *(gui)* Highlight selected result row
+- *(gui)* Wake UI when background search responds
+- *(preview)* Key preview cache by source fingerprint
+- *(gui)* Stop decaying split ratio across restarts
+
+### Features
+
+- *(gui)* Replace GTK4 with eframe/egui application
+- *(gui)* Add clear button to search input
+- *(gui)* Require four-character minimum for search
+- *(gui)* Generate previews asynchronously
+- *(core)* Add configurable fuzzy search
+- *(gui)* Fuzzy search toggle in settings
+- *(gui)* Remember sidebar width in pixels
+- *(gui)* Widen settings nav panel
+
+### Miscellaneous Tasks
+
+- *(gui)* Update packaging and docs for eframe migration
+- Migrate release workflow to reusable workflow
+
+### Refactor
+
+- *(gui)* Extract preview model from GTK buffer rendering
 ## [0.4.1] - 2026-10-11
 
 ### Bug Fixes
@@ -20,6 +59,7 @@
 ### Miscellaneous Tasks
 
 - Release glintindex version 0.4.1
+- Update CHANGELOG
 ## [0.4.0] - 2026-08-28
 
 ### Bug Fixes
