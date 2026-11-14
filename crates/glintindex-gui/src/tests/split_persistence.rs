@@ -8,13 +8,20 @@ use eframe::egui::{self, Pos2, Rect};
 
 use crate::app::{GlintApp, View};
 
-use super::setup_test_service;
+use super::{panel_id, setup_test_service};
 
 /// Runs `n` frames on one context, switching viewport width per call.
 ///
 /// `RawInput.screen_rect` drives `viewport_rect` (the headless default
-/// viewport is a 10000pt square).
-fn run_frames(app: &mut GlintApp, ctx: &egui::Context, screen_width: f32, frames: usize) {
+/// viewport is a 10000pt square). Returns the id of the results panel's
+/// stored [`egui::PanelState`], captured from the parent UI.
+fn run_frames(
+    app: &mut GlintApp,
+    ctx: &egui::Context,
+    screen_width: f32,
+    frames: usize,
+) -> egui::Id {
+    let mut state_id = None;
     for _ in 0..frames {
         let input = egui::RawInput {
             screen_rect: Some(Rect::from_min_size(
@@ -23,9 +30,13 @@ fn run_frames(app: &mut GlintApp, ctx: &egui::Context, screen_width: f32, frames
             )),
             ..Default::default()
         };
-        let out = ctx.run_ui(input, |ui| app.ui(ui));
+        let out = ctx.run_ui(input, |ui| {
+            state_id = Some(panel_id(ui, "results_panel"));
+            app.ui(ui);
+        });
         out.drop_without_applying_deltas();
     }
+    state_id.expect("ran at least one frame")
 }
 
 /// Builds a main-view app with the given persisted sidebar width.
@@ -47,10 +58,10 @@ fn app_with_legacy_ratio(ratio: f32) -> (GlintApp, tempfile::TempDir) {
 }
 
 /// Simulates a user drag by injecting a panel state of `px` width.
-fn inject_panel_width(ctx: &egui::Context, px: f32) {
+fn inject_panel_width(ctx: &egui::Context, state_id: egui::Id, px: f32) {
     ctx.data_mut(|d| {
         d.insert_persisted(
-            egui::Id::new("results_panel"),
+            state_id,
             egui::PanelState {
                 outer_rect: Rect::from_min_size(Pos2::ZERO, egui::vec2(px, 600.0)),
             },
@@ -95,11 +106,11 @@ fn drag_updates_stored_width() {
     let (mut app, _tmp) = app_with_width(400);
     let ctx = egui::Context::default();
     // First frame only records the baseline (viewport 1000, width 400).
-    run_frames(&mut app, &ctx, 1000.0, 1);
+    let state_id = run_frames(&mut app, &ctx, 1000.0, 1);
     assert_eq!(app.service.config().main_split_width(), 400);
 
     // Simulate a user drag: the panel state now says 560px wide.
-    inject_panel_width(&ctx, 560.0);
+    inject_panel_width(&ctx, state_id, 560.0);
     run_frames(&mut app, &ctx, 1000.0, 1);
     assert_eq!(
         app.service.config().main_split_width,
