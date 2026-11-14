@@ -39,10 +39,10 @@ pub fn reveal_in_file_manager(path: &Path) -> anyhow::Result<()> {
             .stderr(std::process::Stdio::null())
             .status();
 
-        if let Ok(status) = result {
-            if status.success() {
-                return Ok(());
-            }
+        if let Ok(status) = result
+            && status.success()
+        {
+            return Ok(());
         }
 
         // Fallback: open the parent directory

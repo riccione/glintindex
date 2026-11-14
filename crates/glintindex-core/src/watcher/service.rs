@@ -241,13 +241,13 @@ impl FileWatcher {
                 _ => None,
             };
 
-            if let Some(evt) = watch_event {
-                if tx.send(evt).is_err() {
-                    tracing::warn!(
-                        target: "glintindex::watcher",
-                        "event channel closed, dropping event"
-                    );
-                }
+            if let Some(evt) = watch_event
+                && tx.send(evt).is_err()
+            {
+                tracing::warn!(
+                    target: "glintindex::watcher",
+                    "event channel closed, dropping event"
+                );
             }
         }
     }

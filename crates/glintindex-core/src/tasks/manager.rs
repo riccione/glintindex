@@ -45,10 +45,10 @@ impl SharedProgressReporter {
 
     /// Updates the progress in shared state.
     fn update_progress(&self, f: impl FnOnce(&mut Progress)) {
-        if let Ok(mut guard) = self.shared.lock() {
-            if let Some(ref mut shared) = *guard {
-                f(&mut shared.progress);
-            }
+        if let Ok(mut guard) = self.shared.lock()
+            && let Some(ref mut shared) = *guard
+        {
+            f(&mut shared.progress);
         }
     }
 }
@@ -253,12 +253,12 @@ impl TaskManager {
                 .current_job
                 .lock()
                 .map_err(|e| GlintIndexError::Other(format!("lock poisoned: {e}")))?;
-            if let Some(ref shared) = *guard {
-                if matches!(shared.state, JobState::Running | JobState::Pending) {
-                    return Err(GlintIndexError::Other(
-                        "A job is already running".to_string(),
-                    ));
-                }
+            if let Some(ref shared) = *guard
+                && matches!(shared.state, JobState::Running | JobState::Pending)
+            {
+                return Err(GlintIndexError::Other(
+                    "A job is already running".to_string(),
+                ));
             }
         }
 
@@ -307,17 +307,17 @@ impl TaskManager {
             };
 
             // Update final state
-            if let Ok(mut guard) = internal_shared.lock() {
-                if let Some(ref mut shared) = *guard {
-                    match result {
-                        Ok(stats) => {
-                            shared.state = JobState::Completed;
-                            shared.progress = Progress::from_statistics(&stats, "Completed");
-                        }
-                        Err(e) => {
-                            shared.state = JobState::Failed(e.to_string());
-                            shared.progress.status_message = format!("Failed: {e}");
-                        }
+            if let Ok(mut guard) = internal_shared.lock()
+                && let Some(ref mut shared) = *guard
+            {
+                match result {
+                    Ok(stats) => {
+                        shared.state = JobState::Completed;
+                        shared.progress = Progress::from_statistics(&stats, "Completed");
+                    }
+                    Err(e) => {
+                        shared.state = JobState::Failed(e.to_string());
+                        shared.progress.status_message = format!("Failed: {e}");
                     }
                 }
             }
@@ -515,13 +515,12 @@ mod tests {
         // Check progress is updated
         let mut saw_running = false;
         for _ in 0..20 {
-            if let Some(progress) = manager.current_progress() {
-                if progress.status_message.contains("Scanning")
+            if let Some(progress) = manager.current_progress()
+                && (progress.status_message.contains("Scanning")
                     || progress.status_message.contains("Committing")
-                    || progress.status_message.contains("Starting")
-                {
-                    saw_running = true;
-                }
+                    || progress.status_message.contains("Starting"))
+            {
+                saw_running = true;
             }
             if !manager.is_running() {
                 break;

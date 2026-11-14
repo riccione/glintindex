@@ -179,12 +179,11 @@ impl IndexService {
             std::mem::take(&mut *guard)
         };
 
-        if !buffer.is_empty() {
-            if let Some(ref repo) = self.metadata {
-                if let Ok(mut guard) = repo.lock() {
-                    guard.upsert_batch(&buffer)?;
-                }
-            }
+        if !buffer.is_empty()
+            && let Some(ref repo) = self.metadata
+            && let Ok(mut guard) = repo.lock()
+        {
+            guard.upsert_batch(&buffer)?;
         }
         Ok(())
     }
@@ -522,10 +521,10 @@ impl DocumentIndexer for IndexService {
         }
 
         // Remove metadata record
-        if let Some(ref repo) = self.metadata {
-            if let Ok(guard) = repo.lock() {
-                let _ = guard.remove(&path.to_string_lossy());
-            }
+        if let Some(ref repo) = self.metadata
+            && let Ok(guard) = repo.lock()
+        {
+            let _ = guard.remove(&path.to_string_lossy());
         }
 
         Ok(())
@@ -542,10 +541,10 @@ impl DocumentIndexer for IndexService {
         self.reader.reload()?;
 
         // Clear metadata database
-        if let Some(ref repo) = self.metadata {
-            if let Ok(guard) = repo.lock() {
-                let _ = guard.clear();
-            }
+        if let Some(ref repo) = self.metadata
+            && let Ok(guard) = repo.lock()
+        {
+            let _ = guard.clear();
         }
 
         Ok(())

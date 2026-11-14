@@ -144,10 +144,10 @@ impl<'a> FilesystemScanner<'a> {
             .follow_links(true)
             .into_iter()
             .filter_entry(move |entry| {
-                if entry.file_type().is_dir() {
-                    if let Some(name) = entry.file_name().to_str() {
-                        return !ignore_rules.should_ignore_dir(name);
-                    }
+                if entry.file_type().is_dir()
+                    && let Some(name) = entry.file_name().to_str()
+                {
+                    return !ignore_rules.should_ignore_dir(name);
                 }
                 true
             });

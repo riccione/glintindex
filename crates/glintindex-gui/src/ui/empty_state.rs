@@ -31,13 +31,12 @@ pub fn show(app: &mut GlintApp, ui: &mut egui::Ui) {
                 ui.weak("Choose a folder to index to start searching your files.");
                 ui.add_space(16.0);
 
-                if ui.add(egui::Button::new("Index Folder…")).clicked() {
-                    if let Some(path) = rfd::FileDialog::new()
+                if ui.add(egui::Button::new("Index Folder…")).clicked()
+                    && let Some(path) = rfd::FileDialog::new()
                         .set_title("Select Folder to Index")
                         .pick_folder()
-                    {
-                        app.add_folder_and_index(&path);
-                    }
+                {
+                    app.add_folder_and_index(&path);
                 }
 
                 ui.add_space(8.0);
