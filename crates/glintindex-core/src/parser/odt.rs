@@ -39,14 +39,12 @@ impl OdtParser {
     fn extract_text_from_content_xml(xml: &str) -> String {
         let mut text = String::new();
         let mut reader = Reader::from_str(xml);
-        let mut buf = Vec::new();
         let mut in_text_content = false;
 
         loop {
-            match reader.read_event_into(&mut buf) {
+            match reader.read_event() {
                 Ok(Event::Start(ref e)) | Ok(Event::Empty(ref e)) => {
-                    let name = e.name();
-                    let tag = String::from_utf8_lossy(name.as_ref());
+                    let tag = e.name().into_inner();
                     // Text content elements
                     if tag == "text:p"
                         || tag == "text:h"
@@ -66,13 +64,10 @@ impl OdtParser {
                     }
                 }
                 Ok(Event::Text(ref e)) if in_text_content => {
-                    if let Ok(content) = e.xml10_content() {
-                        text.push_str(&content);
-                    }
+                    text.push_str(&e.xml10_content());
                 }
                 Ok(Event::End(ref e)) => {
-                    let name = e.name();
-                    let tag = String::from_utf8_lossy(name.as_ref());
+                    let tag = e.name().into_inner();
                     if tag == "text:p"
                         || tag == "text:h"
                         || tag == "text:span"
@@ -90,7 +85,6 @@ impl OdtParser {
                 }
                 _ => {}
             }
-            buf.clear();
         }
 
         text
