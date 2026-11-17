@@ -93,10 +93,10 @@ pub fn build_preview_model(output: &glintindex_core::PreviewOutput) -> PreviewMo
 
     let mut previous_line: Option<usize> = None;
     for line in &output.lines {
-        if let Some(prev) = previous_line {
-            if line.line_number > prev + 1 {
-                lines.push(PreviewModel::dim("…"));
-            }
+        if let Some(prev) = previous_line
+            && line.line_number > prev + 1
+        {
+            lines.push(PreviewModel::dim("…"));
         }
         previous_line = Some(line.line_number);
 

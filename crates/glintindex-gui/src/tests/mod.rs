@@ -45,6 +45,15 @@ pub fn setup_test_app() -> (GlintApp, tempfile::TempDir) {
     (GlintApp::with_service(service), tmp)
 }
 
+/// [`Id`](egui::Id) under which a side panel shown in `ui` stores its
+/// [`PanelState`](egui::PanelState).
+///
+/// Mirrors egui's own derivation: the panel's id salt salted with the
+/// parent UI's scope id.
+pub fn panel_id(ui: &egui::Ui, salt: &str) -> egui::Id {
+    ui.scope_id().with_salt(egui::IdSalt::new(salt))
+}
+
 /// Runs `n` headless frames of the app UI on a fresh egui context.
 pub fn run_ui(app: &mut GlintApp, n: usize) {
     let ctx = egui::Context::default();

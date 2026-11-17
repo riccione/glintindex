@@ -8,18 +8,22 @@
 use eframe::egui::{self, Color32, TextStyle};
 use glintindex_core::Theme;
 
-use super::{run_ui, setup_test_app, setup_test_service};
+use super::{panel_id, run_ui, setup_test_app, setup_test_service};
 
 /// Runs `frames` headless frames on a fresh context and returns the
 /// persisted settings-nav panel width together with the context (for
 /// follow-up font/text measurements against the same fonts).
 fn settings_nav_width(app: &mut crate::app::GlintApp, frames: usize) -> (f32, egui::Context) {
     let ctx = egui::Context::default();
+    let mut nav_id = None;
     for _ in 0..frames {
-        let out = ctx.run_ui(egui::RawInput::default(), |ui| app.ui(ui));
+        let out = ctx.run_ui(egui::RawInput::default(), |ui| {
+            nav_id = Some(panel_id(ui, "settings_nav"));
+            app.ui(ui);
+        });
         out.drop_without_applying_deltas();
     }
-    let width = egui::PanelState::load(&ctx, egui::Id::new("settings_nav"))
+    let width = egui::PanelState::load(&ctx, nav_id.expect("ran at least one frame"))
         .expect("settings nav panel state persisted")
         .size()
         .x;

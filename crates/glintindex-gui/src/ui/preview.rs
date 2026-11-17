@@ -30,38 +30,36 @@ pub fn show(app: &mut GlintApp, ui: &mut egui::Ui) {
 
         ui.horizontal(|ui| {
             let open = ui.add_enabled(file_exists, egui::Button::new("Open"));
-            if open.clicked() {
-                if let Some(path) = &selected_path {
-                    if let Err(e) = crate::file_actions::open_file(path) {
-                        tracing::warn!(
-                            target: "glintindex::gui",
-                            path = %path.display(),
-                            error = %e,
-                            "open file failed"
-                        );
-                    }
-                }
+            if open.clicked()
+                && let Some(path) = &selected_path
+                && let Err(e) = crate::file_actions::open_file(path)
+            {
+                tracing::warn!(
+                    target: "glintindex::gui",
+                    path = %path.display(),
+                    error = %e,
+                    "open file failed"
+                );
             }
 
             let reveal = ui.add_enabled(selected_path.is_some(), egui::Button::new("Open Folder"));
-            if reveal.clicked() {
-                if let Some(path) = &selected_path {
-                    if let Err(e) = crate::file_actions::reveal_in_file_manager(path) {
-                        tracing::warn!(
-                            target: "glintindex::gui",
-                            path = %path.display(),
-                            error = %e,
-                            "reveal in file manager failed"
-                        );
-                    }
-                }
+            if reveal.clicked()
+                && let Some(path) = &selected_path
+                && let Err(e) = crate::file_actions::reveal_in_file_manager(path)
+            {
+                tracing::warn!(
+                    target: "glintindex::gui",
+                    path = %path.display(),
+                    error = %e,
+                    "reveal in file manager failed"
+                );
             }
 
             let copy = ui.add_enabled(selected_path.is_some(), egui::Button::new("Copy Path"));
-            if copy.clicked() {
-                if let Some(path) = &selected_path {
-                    ui.ctx().copy_text(path.display().to_string());
-                }
+            if copy.clicked()
+                && let Some(path) = &selected_path
+            {
+                ui.ctx().copy_text(path.display().to_string());
             }
         });
 

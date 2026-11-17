@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-- Rust toolchain (stable, 1.85+)
+- Rust toolchain (stable, 1.88+)
 - ~500 MB free disk space for datasets
 
 ## Running Benchmarks

@@ -253,20 +253,18 @@ fn appearance_page(app: &mut GlintApp, ui: &mut egui::Ui) {
 fn indexed_folders_page(app: &mut GlintApp, ui: &mut egui::Ui) {
     page_header(ui, "Indexed Folders");
 
-    if ui.button("Add Folder…").clicked() {
-        if let Some(path) = rfd::FileDialog::new()
+    if ui.button("Add Folder…").clicked()
+        && let Some(path) = rfd::FileDialog::new()
             .set_title("Select Folder to Index")
             .pick_folder()
-        {
-            if let Err(e) = app.service.add_folder(&path) {
-                tracing::warn!(
-                    target: "glintindex::gui",
-                    path = %path.display(),
-                    error = %e,
-                    "add folder failed"
-                );
-            }
-        }
+        && let Err(e) = app.service.add_folder(&path)
+    {
+        tracing::warn!(
+            target: "glintindex::gui",
+            path = %path.display(),
+            error = %e,
+            "add folder failed"
+        );
     }
 
     ui.add_space(8.0);

@@ -197,16 +197,18 @@ impl PreviewService {
         // cached syntax lines when the exact same bytes were seen.
         {
             let cache = self.cache.lock().unwrap_or_else(|e| e.into_inner());
-            if let Some((cached_path, cached_key, cached_output)) = cache.as_ref() {
-                if cached_path == path && *cached_key == key && cached_output.error.is_none() {
-                    let mut output = cached_output.clone();
-                    // Envelope facts come from *this* input: two texts
-                    // can share the bounded slice but differ beyond it.
-                    output.original_size = original_size;
-                    output.truncated = truncated;
-                    self.finalize_preview(&mut output, query);
-                    return output;
-                }
+            if let Some((cached_path, cached_key, cached_output)) = cache.as_ref()
+                && cached_path == path
+                && *cached_key == key
+                && cached_output.error.is_none()
+            {
+                let mut output = cached_output.clone();
+                // Envelope facts come from *this* input: two texts
+                // can share the bounded slice but differ beyond it.
+                output.original_size = original_size;
+                output.truncated = truncated;
+                self.finalize_preview(&mut output, query);
+                return output;
             }
         }
 
@@ -242,12 +244,14 @@ impl PreviewService {
         let disk_key = disk_fingerprint(path);
         if let Some(key) = &disk_key {
             let cache = self.cache.lock().unwrap_or_else(|e| e.into_inner());
-            if let Some((cached_path, cached_key, cached_output)) = cache.as_ref() {
-                if cached_path == path && cached_key == key && cached_output.error.is_none() {
-                    let mut output = cached_output.clone();
-                    self.finalize_preview(&mut output, query);
-                    return output;
-                }
+            if let Some((cached_path, cached_key, cached_output)) = cache.as_ref()
+                && cached_path == path
+                && cached_key == key
+                && cached_output.error.is_none()
+            {
+                let mut output = cached_output.clone();
+                self.finalize_preview(&mut output, query);
+                return output;
             }
         }
 

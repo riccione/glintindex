@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use criterion::Criterion;
-use rand::Rng;
+use rand::RngExt;
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
 
@@ -29,7 +29,7 @@ pub fn create_text_dataset(dir: &Path, count: usize, avg_size: usize) {
         let target_bytes = avg_size;
         let mut content = String::with_capacity(target_bytes + 100);
         while content.len() < target_bytes {
-            let chunk_len = rng.gen_range(20..80).min(target_bytes - content.len());
+            let chunk_len = rng.random_range(20..80).min(target_bytes - content.len());
             content.push_str(&LOREM[..chunk_len]);
             content.push('\n');
         }
@@ -55,7 +55,7 @@ pub fn create_mixed_dataset(dir: &Path, count: usize) {
         let path = dir.join(format!("file_{i:06}.{ext}"));
         let text: String = (0..5)
             .map(|_| {
-                let start = rng.gen_range(0..LOREM.len().saturating_sub(40));
+                let start = rng.random_range(0..LOREM.len().saturating_sub(40));
                 LOREM[start..start + 40].to_string()
             })
             .collect::<Vec<_>>()
@@ -284,12 +284,11 @@ fn gather_ram() -> String {
     {
         let out = run_cmd("free", &["-b"]);
         for line in out.lines() {
-            if let Some(rest) = line.strip_prefix("Mem:") {
-                if let Some(total_str) = rest.split_whitespace().next() {
-                    if let Ok(bytes) = total_str.parse::<u64>() {
-                        return format_bytes(bytes);
-                    }
-                }
+            if let Some(rest) = line.strip_prefix("Mem:")
+                && let Some(total_str) = rest.split_whitespace().next()
+                && let Ok(bytes) = total_str.parse::<u64>()
+            {
+                return format_bytes(bytes);
             }
         }
     }

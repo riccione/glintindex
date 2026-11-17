@@ -13,7 +13,7 @@ glintindex-core.workspace = true
 clap.workspace = true
 anyhow.workspace = true
 tracing.workspace = true
-indicatif = "0.18.4"
+indicatif = "0.18"
 
 [dev-dependencies]
-tempfile = "3"
+tempfile = "3.27"

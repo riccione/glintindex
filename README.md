@@ -85,7 +85,7 @@ cargo build --no-default-features -p glintindex-core
 
 ## Requirements
 
-- Rust 1.85 or later (edition 2024)
+- Rust 1.88 or later (edition 2024)
 - Linux, macOS, or Windows
 
 ## Installation

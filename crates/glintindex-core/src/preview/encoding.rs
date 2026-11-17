@@ -132,15 +132,21 @@ pub fn detect_from_file(path: &Path) -> crate::error::Result<EncodingResult> {
 
 /// Decodes UTF-16 Little Endian bytes to a String.
 fn decode_utf16_le(bytes: &[u8]) -> String {
-    let chunks = bytes.chunks_exact(2);
-    let decoded: Vec<u16> = chunks.map(|c| u16::from_le_bytes([c[0], c[1]])).collect();
+    let (chunks, _remainder) = bytes.as_chunks::<2>();
+    let decoded: Vec<u16> = chunks
+        .iter()
+        .map(|&[lo, hi]| u16::from_le_bytes([lo, hi]))
+        .collect();
     String::from_utf16_lossy(&decoded)
 }
 
 /// Decodes UTF-16 Big Endian bytes to a String.
 fn decode_utf16_be(bytes: &[u8]) -> String {
-    let chunks = bytes.chunks_exact(2);
-    let decoded: Vec<u16> = chunks.map(|c| u16::from_be_bytes([c[0], c[1]])).collect();
+    let (chunks, _remainder) = bytes.as_chunks::<2>();
+    let decoded: Vec<u16> = chunks
+        .iter()
+        .map(|&[hi, lo]| u16::from_be_bytes([hi, lo]))
+        .collect();
     String::from_utf16_lossy(&decoded)
 }
 
@@ -148,8 +154,9 @@ fn decode_utf16_be(bytes: &[u8]) -> String {
 fn is_likely_utf16_le(bytes: &[u8]) -> bool {
     let sample_len = bytes.len().min(1024);
     let mut null_count = 0;
-    for chunk in bytes[..sample_len].chunks_exact(2) {
-        if chunk[1] == 0 && chunk[0] != 0 {
+    let (chunks, _remainder) = bytes[..sample_len].as_chunks::<2>();
+    for &[lo, hi] in chunks {
+        if hi == 0 && lo != 0 {
             null_count += 1;
         }
     }
@@ -160,8 +167,9 @@ fn is_likely_utf16_le(bytes: &[u8]) -> bool {
 fn is_likely_utf16_be(bytes: &[u8]) -> bool {
     let sample_len = bytes.len().min(1024);
     let mut null_count = 0;
-    for chunk in bytes[..sample_len].chunks_exact(2) {
-        if chunk[0] == 0 && chunk[1] != 0 {
+    let (chunks, _remainder) = bytes[..sample_len].as_chunks::<2>();
+    for &[hi, lo] in chunks {
+        if hi == 0 && lo != 0 {
             null_count += 1;
         }
     }
